@@ -1,0 +1,12 @@
+# Compiled binary (from `make build` / `go build`)
+/patchr
+/dist/
+
+# Local runtime config — may reference real repos; never commit
+patchr.yaml
+
+# Local secrets
+.env
+
+# Go test binaries
+*.test

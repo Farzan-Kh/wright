@@ -1,0 +1,13 @@
+# golangci-lint v2 configuration. Minimal, high-signal set.
+version: "2"
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - misspell
+
+formatters:
+  enable:
+    - gofmt
