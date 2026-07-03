@@ -1,0 +1,379 @@
+package github
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
+	"testing"
+
+	gh "github.com/google/go-github/v78/github"
+
+	"github.com/farzan-kh/patchr/internal/provider"
+	"github.com/farzan-kh/patchr/internal/provider/providertest"
+)
+
+var testRepo = provider.Repo{FullPath: "acme/widgets"}
+
+// newTestClient stands up an httptest server for h and returns a Client whose
+// underlying go-github client is pointed at it.
+func newTestClient(t *testing.T, h http.Handler) *Client {
+	t.Helper()
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	u, err := url.Parse(srv.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := gh.NewClient(nil)
+	c.BaseURL = u
+	return &Client{gh: c}
+}
+
+// mustWrite writes a canned response body, ignoring the error (irrelevant to an
+// in-process httptest handler).
+func mustWrite(w http.ResponseWriter, b []byte) { _, _ = w.Write(b) }
+
+func readFixture(t *testing.T, name string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("testdata", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func decodeBody(t *testing.T, r *http.Request) map[string]any {
+	t.Helper()
+	var m map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
+		t.Fatalf("decode request body: %v", err)
+	}
+	return m
+}
+
+func TestListLabeledIssues(t *testing.T) {
+	var gotLabels, gotState string
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /repos/acme/widgets/issues", func(w http.ResponseWriter, r *http.Request) {
+		gotLabels = r.URL.Query().Get("labels")
+		gotState = r.URL.Query().Get("state")
+		if r.URL.Query().Get("page") == "2" {
+			mustWrite(w, readFixture(t, "issues_page2.json"))
+			return
+		}
+		w.Header().Set("Link", `<http://`+r.Host+`/repos/acme/widgets/issues?page=2>; rel="next"`)
+		mustWrite(w, readFixture(t, "issues_page1.json"))
+	})
+
+	c := newTestClient(t, mux)
+	issues, err := c.ListLabeledIssues(context.Background(), testRepo, "patchr")
+	if err != nil {
+		t.Fatalf("ListLabeledIssues: %v", err)
+	}
+
+	if gotState != "open" {
+		t.Errorf("state param = %q, want open", gotState)
+	}
+	if gotLabels != "patchr" {
+		t.Errorf("labels param = %q, want patchr", gotLabels)
+	}
+	// page1 has issue 101 + PR 102 (filtered); page2 has issue 103.
+	if len(issues) != 2 {
+		t.Fatalf("got %d issues, want 2: %+v", len(issues), issues)
+	}
+	providertest.AssertIssuesPopulated(t, issues)
+	providertest.AssertNoIssueNumbers(t, issues, 102)
+	providertest.AssertEveryIssueHasLabel(t, issues, "patchr")
+
+	if issues[0].Number != 101 || issues[0].Author != "alice" {
+		t.Errorf("issue[0] = %+v", issues[0])
+	}
+	if issues[0].Labels[0] != "patchr" || issues[0].Labels[1] != "bug" {
+		t.Errorf("issue[0] labels = %v", issues[0].Labels)
+	}
+}
+
+func TestCommentOnIssue(t *testing.T) {
+	var gotBody string
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /repos/acme/widgets/issues/101/comments", func(w http.ResponseWriter, r *http.Request) {
+		gotBody, _ = decodeBody(t, r)["body"].(string)
+		w.WriteHeader(http.StatusCreated)
+		mustWrite(w, []byte(`{"id":1}`))
+	})
+
+	c := newTestClient(t, mux)
+	if err := c.CommentOnIssue(context.Background(), testRepo, 101, "please add repro steps"); err != nil {
+		t.Fatalf("CommentOnIssue: %v", err)
+	}
+	if gotBody != "please add repro steps" {
+		t.Errorf("comment body = %q", gotBody)
+	}
+}
+
+func TestDefaultBranch(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /repos/acme/widgets", func(w http.ResponseWriter, r *http.Request) {
+		mustWrite(w, []byte(`{"default_branch":"main"}`))
+	})
+	c := newTestClient(t, mux)
+	got, err := c.DefaultBranch(context.Background(), testRepo)
+	if err != nil {
+		t.Fatalf("DefaultBranch: %v", err)
+	}
+	if got != "main" {
+		t.Errorf("DefaultBranch = %q, want main", got)
+	}
+}
+
+func TestCreateBranch(t *testing.T) {
+	t.Run("ok", func(t *testing.T) {
+		var gotRef, gotSHA string
+		mux := http.NewServeMux()
+		mux.HandleFunc("GET /repos/acme/widgets/git/ref/heads/main", func(w http.ResponseWriter, r *http.Request) {
+			mustWrite(w, []byte(`{"ref":"refs/heads/main","object":{"sha":"basesha","type":"commit"}}`))
+		})
+		mux.HandleFunc("POST /repos/acme/widgets/git/refs", func(w http.ResponseWriter, r *http.Request) {
+			body := decodeBody(t, r)
+			gotRef, _ = body["ref"].(string)
+			gotSHA, _ = body["sha"].(string)
+			w.WriteHeader(http.StatusCreated)
+			mustWrite(w, []byte(`{"ref":"refs/heads/patchr/x"}`))
+		})
+		c := newTestClient(t, mux)
+		if err := c.CreateBranch(context.Background(), testRepo, "patchr/x", "main"); err != nil {
+			t.Fatalf("CreateBranch: %v", err)
+		}
+		if gotRef != "refs/heads/patchr/x" {
+			t.Errorf("ref = %q", gotRef)
+		}
+		if gotSHA != "basesha" {
+			t.Errorf("sha = %q, want basesha (resolved from base ref)", gotSHA)
+		}
+	})
+
+	t.Run("already_exists", func(t *testing.T) {
+		mux := http.NewServeMux()
+		mux.HandleFunc("GET /repos/acme/widgets/git/ref/heads/main", func(w http.ResponseWriter, r *http.Request) {
+			mustWrite(w, []byte(`{"object":{"sha":"basesha"}}`))
+		})
+		mux.HandleFunc("POST /repos/acme/widgets/git/refs", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			mustWrite(w, []byte(`{"message":"Reference already exists"}`))
+		})
+		c := newTestClient(t, mux)
+		err := c.CreateBranch(context.Background(), testRepo, "patchr/x", "main")
+		providertest.AssertErrorIs(t, err, provider.ErrAlreadyExists)
+	})
+}
+
+func TestDeleteBranch(t *testing.T) {
+	var called bool
+	mux := http.NewServeMux()
+	mux.HandleFunc("DELETE /repos/acme/widgets/git/refs/heads/patchr/x", func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusNoContent)
+	})
+	c := newTestClient(t, mux)
+	if err := c.DeleteBranch(context.Background(), testRepo, "patchr/x"); err != nil {
+		t.Fatalf("DeleteBranch: %v", err)
+	}
+	if !called {
+		t.Error("delete endpoint not called")
+	}
+}
+
+func TestPushCommits(t *testing.T) {
+	var treeBody map[string]any
+	var commitBody, updateBody map[string]any
+	blobCount := 0
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /repos/acme/widgets/git/ref/heads/patchr/x", func(w http.ResponseWriter, r *http.Request) {
+		mustWrite(w, []byte(`{"object":{"sha":"parentsha"}}`))
+	})
+	mux.HandleFunc("GET /repos/acme/widgets/git/commits/parentsha", func(w http.ResponseWriter, r *http.Request) {
+		mustWrite(w, []byte(`{"sha":"parentsha","tree":{"sha":"basetree"}}`))
+	})
+	mux.HandleFunc("POST /repos/acme/widgets/git/blobs", func(w http.ResponseWriter, r *http.Request) {
+		blobCount++
+		w.WriteHeader(http.StatusCreated)
+		mustWrite(w, []byte(`{"sha":"blobsha"}`))
+	})
+	mux.HandleFunc("POST /repos/acme/widgets/git/trees", func(w http.ResponseWriter, r *http.Request) {
+		treeBody = decodeBody(t, r)
+		w.WriteHeader(http.StatusCreated)
+		mustWrite(w, []byte(`{"sha":"newtree"}`))
+	})
+	mux.HandleFunc("POST /repos/acme/widgets/git/commits", func(w http.ResponseWriter, r *http.Request) {
+		commitBody = decodeBody(t, r)
+		w.WriteHeader(http.StatusCreated)
+		mustWrite(w, []byte(`{"sha":"newcommit"}`))
+	})
+	mux.HandleFunc("PATCH /repos/acme/widgets/git/refs/heads/patchr/x", func(w http.ResponseWriter, r *http.Request) {
+		updateBody = decodeBody(t, r)
+		mustWrite(w, []byte(`{"object":{"sha":"newcommit"}}`))
+	})
+
+	c := newTestClient(t, mux)
+	head, err := c.PushCommits(context.Background(), testRepo, "patchr/x", providertest.StandardCommits())
+	if err != nil {
+		t.Fatalf("PushCommits: %v", err)
+	}
+	if head != "newcommit" {
+		t.Errorf("head SHA = %q, want newcommit", head)
+	}
+	if blobCount != 1 {
+		t.Errorf("created %d blobs, want 1 (only the non-deleted file)", blobCount)
+	}
+	if treeBody["base_tree"] != "basetree" {
+		t.Errorf("base_tree = %v, want basetree", treeBody["base_tree"])
+	}
+
+	// The tree must carry both entries: the added file (with a blob sha) and the
+	// deletion (path present, sha explicitly null).
+	entries, _ := treeBody["tree"].([]any)
+	if len(entries) != 2 {
+		t.Fatalf("tree entries = %d, want 2: %v", len(entries), entries)
+	}
+	byPath := map[string]map[string]any{}
+	for _, e := range entries {
+		m := e.(map[string]any)
+		byPath[m["path"].(string)] = m
+	}
+	added := byPath["docs/added.md"]
+	if added["sha"] != "blobsha" {
+		t.Errorf("added entry sha = %v, want blobsha", added["sha"])
+	}
+	del, ok := byPath["obsolete.txt"]
+	if !ok {
+		t.Fatal("deletion entry missing from tree")
+	}
+	if sha, present := del["sha"]; !present || sha != nil {
+		t.Errorf("deletion entry sha = %v (present=%v), want explicit null", sha, present)
+	}
+
+	// Parent chaining and ref update. The Git create-commit API serializes
+	// parents as an array of SHA strings.
+	parents, _ := commitBody["parents"].([]any)
+	if len(parents) != 1 || parents[0] != "parentsha" {
+		t.Errorf("commit parents = %v, want [parentsha]", parents)
+	}
+	if commitBody["tree"] != "newtree" {
+		t.Errorf("commit tree = %v, want newtree", commitBody["tree"])
+	}
+	if updateBody["sha"] != "newcommit" {
+		t.Errorf("update ref sha = %v, want newcommit", updateBody["sha"])
+	}
+}
+
+func TestOpenPullRequest(t *testing.T) {
+	var body map[string]any
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /repos/acme/widgets/pulls", func(w http.ResponseWriter, r *http.Request) {
+		body = decodeBody(t, r)
+		w.WriteHeader(http.StatusCreated)
+		mustWrite(w, []byte(`{"number":7,"html_url":"https://github.com/acme/widgets/pull/7","head":{"ref":"patchr/x"},"base":{"ref":"main"}}`))
+	})
+	c := newTestClient(t, mux)
+	pr, err := c.OpenPullRequest(context.Background(), testRepo, provider.PullRequestSpec{
+		Title:      "Fix the thing",
+		Body:       "Resolves #101",
+		HeadBranch: "patchr/x",
+		BaseBranch: "main",
+		Draft:      true,
+	})
+	if err != nil {
+		t.Fatalf("OpenPullRequest: %v", err)
+	}
+	if body["draft"] != true || body["head"] != "patchr/x" || body["base"] != "main" {
+		t.Errorf("request body = %v", body)
+	}
+	if pr.Number != 7 || pr.HeadBranch != "patchr/x" || pr.BaseBranch != "main" {
+		t.Errorf("pr = %+v", pr)
+	}
+}
+
+func TestMergePullRequest(t *testing.T) {
+	var mergeBody map[string]any
+	deleteCalled := false
+	mux := http.NewServeMux()
+	mux.HandleFunc("PUT /repos/acme/widgets/pulls/7/merge", func(w http.ResponseWriter, r *http.Request) {
+		mergeBody = decodeBody(t, r)
+		mustWrite(w, []byte(`{"merged":true,"sha":"mergedsha"}`))
+	})
+	mux.HandleFunc("GET /repos/acme/widgets/pulls/7", func(w http.ResponseWriter, r *http.Request) {
+		mustWrite(w, []byte(`{"number":7,"head":{"ref":"patchr/x"}}`))
+	})
+	mux.HandleFunc("DELETE /repos/acme/widgets/git/refs/heads/patchr/x", func(w http.ResponseWriter, r *http.Request) {
+		deleteCalled = true
+		w.WriteHeader(http.StatusNoContent)
+	})
+	c := newTestClient(t, mux)
+	err := c.MergePullRequest(context.Background(), testRepo, 7, provider.MergeOptions{
+		Method:       provider.MergeSquash,
+		DeleteBranch: true,
+	})
+	if err != nil {
+		t.Fatalf("MergePullRequest: %v", err)
+	}
+	if mergeBody["merge_method"] != "squash" {
+		t.Errorf("merge_method = %v, want squash", mergeBody["merge_method"])
+	}
+	if !deleteCalled {
+		t.Error("head branch was not deleted")
+	}
+}
+
+func TestClosePullRequest(t *testing.T) {
+	var body map[string]any
+	mux := http.NewServeMux()
+	mux.HandleFunc("PATCH /repos/acme/widgets/pulls/7", func(w http.ResponseWriter, r *http.Request) {
+		body = decodeBody(t, r)
+		mustWrite(w, []byte(`{"number":7,"state":"closed"}`))
+	})
+	c := newTestClient(t, mux)
+	if err := c.ClosePullRequest(context.Background(), testRepo, 7); err != nil {
+		t.Fatalf("ClosePullRequest: %v", err)
+	}
+	if body["state"] != "closed" {
+		t.Errorf("state = %v, want closed", body["state"])
+	}
+}
+
+func TestErrorMapping(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		want   error
+	}{
+		{"not_found", http.StatusNotFound, provider.ErrNotFound},
+		{"unauthorized", http.StatusUnauthorized, provider.ErrAuth},
+		{"forbidden", http.StatusForbidden, provider.ErrAuth},
+		{"rate_limited", http.StatusTooManyRequests, provider.ErrRateLimited},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mux := http.NewServeMux()
+			mux.HandleFunc("GET /repos/acme/widgets", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tc.status)
+				mustWrite(w, []byte(`{"message":"boom"}`))
+			})
+			c := newTestClient(t, mux)
+			_, err := c.DefaultBranch(context.Background(), testRepo)
+			providertest.AssertErrorIs(t, err, tc.want)
+		})
+	}
+}
+
+func TestSplitRepoInvalid(t *testing.T) {
+	c := &Client{}
+	_, err := c.DefaultBranch(context.Background(), provider.Repo{FullPath: "no-slash"})
+	if err == nil {
+		t.Fatal("expected error for malformed repo path")
+	}
+}

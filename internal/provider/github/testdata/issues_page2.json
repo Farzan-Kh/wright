@@ -1,0 +1,12 @@
+[
+  {
+    "number": 103,
+    "title": "Document the config token resolution order",
+    "body": "Add a table to the README.",
+    "html_url": "https://github.com/acme/widgets/issues/103",
+    "user": { "login": "carol" },
+    "labels": [{ "name": "patchr" }],
+    "created_at": "2026-06-04T08:00:00Z",
+    "updated_at": "2026-06-04T08:45:00Z"
+  }
+]
