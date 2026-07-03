@@ -7,6 +7,13 @@ linters:
     - govet
     - staticcheck
     - misspell
+  settings:
+    errcheck:
+      # Writes to CLI output streams; errors there are not actionable.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
 
 formatters:
   enable:
