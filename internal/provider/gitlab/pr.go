@@ -33,6 +33,19 @@ func (c *Client) OpenPullRequest(ctx context.Context, repo provider.Repo, spec p
 	}, nil
 }
 
+// CommentOnPullRequest posts body as a note on the merge request. GitLab keeps
+// merge-request notes separate from issue notes, so this uses the MR-note
+// endpoint rather than CommentOnIssue.
+func (c *Client) CommentOnPullRequest(ctx context.Context, repo provider.Repo, number int, body string) error {
+	_, _, err := c.gl.Notes.CreateMergeRequestNote(pid(repo), int64(number), &gl.CreateMergeRequestNoteOptions{
+		Body: gl.Ptr(body),
+	}, ctxOpt(ctx))
+	if err != nil {
+		return fmt.Errorf("gitlab: comment on merge request !%d in %s: %w", number, repo.FullPath, classify(err))
+	}
+	return nil
+}
+
 // MergePullRequest accepts the merge request identified by number.
 func (c *Client) MergePullRequest(ctx context.Context, repo provider.Repo, number int, opts provider.MergeOptions) error {
 	acceptOpts := &gl.AcceptMergeRequestOptions{}

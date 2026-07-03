@@ -121,6 +121,24 @@ func TestCommentOnIssue(t *testing.T) {
 	}
 }
 
+func TestCommentOnPullRequest(t *testing.T) {
+	var gotBody string
+	h := router(t, map[string]http.HandlerFunc{
+		"POST " + base + "/merge_requests/7/notes": func(w http.ResponseWriter, r *http.Request) {
+			gotBody, _ = decodeBody(t, r)["body"].(string)
+			w.WriteHeader(http.StatusCreated)
+			mustWrite(w, []byte(`{"id":2}`))
+		},
+	})
+	c := newTestClient(t, h)
+	if err := c.CommentOnPullRequest(context.Background(), testRepo, 7, "smoke test comment"); err != nil {
+		t.Fatalf("CommentOnPullRequest: %v", err)
+	}
+	if gotBody != "smoke test comment" {
+		t.Errorf("note body = %q", gotBody)
+	}
+}
+
 func TestDefaultBranch(t *testing.T) {
 	h := router(t, map[string]http.HandlerFunc{
 		"GET " + base: func(w http.ResponseWriter, r *http.Request) {

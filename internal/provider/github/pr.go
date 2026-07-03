@@ -33,6 +33,20 @@ func (c *Client) OpenPullRequest(ctx context.Context, repo provider.Repo, spec p
 	}, nil
 }
 
+// CommentOnPullRequest posts body as a comment on the pull request. On GitHub a
+// PR is also an issue (shared numbering), so this uses the same issue-comment
+// endpoint as CommentOnIssue.
+func (c *Client) CommentOnPullRequest(ctx context.Context, repo provider.Repo, number int, body string) error {
+	owner, name, err := splitRepo(repo)
+	if err != nil {
+		return err
+	}
+	if _, _, err := c.gh.Issues.CreateComment(ctx, owner, name, number, &gh.IssueComment{Body: gh.Ptr(body)}); err != nil {
+		return fmt.Errorf("github: comment on pull request #%d in %s: %w", number, repo.FullPath, classify(err))
+	}
+	return nil
+}
+
 // MergePullRequest merges the pull request identified by number, optionally
 // deleting its head branch afterwards.
 func (c *Client) MergePullRequest(ctx context.Context, repo provider.Repo, number int, opts provider.MergeOptions) error {

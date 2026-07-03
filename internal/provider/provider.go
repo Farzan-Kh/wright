@@ -26,6 +26,11 @@ type Provider interface {
 	// CommentOnIssue posts body as a comment on the given issue.
 	CommentOnIssue(ctx context.Context, repo Repo, issueNumber int, body string) error
 
+	// CommentOnPullRequest posts body as a comment on the given pull request
+	// (GitLab: merge request). This is distinct from CommentOnIssue because
+	// GitLab keeps issue notes and merge-request notes in separate namespaces.
+	CommentOnPullRequest(ctx context.Context, repo Repo, number int, body string) error
+
 	// DefaultBranch returns the repo's default branch name.
 	DefaultBranch(ctx context.Context, repo Repo) (string, error)
 
