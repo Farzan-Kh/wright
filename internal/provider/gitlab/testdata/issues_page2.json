@@ -1,0 +1,13 @@
+[
+  {
+    "id": 9202,
+    "iid": 202,
+    "title": "Document self-managed base URL setting",
+    "description": "Explain api_base_url for self-hosted GitLab.",
+    "web_url": "https://gitlab.com/acme/widgets/-/issues/202",
+    "author": { "username": "erin" },
+    "labels": ["patchr"],
+    "created_at": "2026-06-07T08:00:00Z",
+    "updated_at": "2026-06-07T09:30:00Z"
+  }
+]

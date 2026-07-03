@@ -1,0 +1,356 @@
+package gitlab
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"testing"
+
+	gl "gitlab.com/gitlab-org/api/client-go"
+
+	"github.com/farzan-kh/patchr/internal/provider"
+	"github.com/farzan-kh/patchr/internal/provider/providertest"
+)
+
+var testRepo = provider.Repo{FullPath: "acme/widgets"}
+
+// base is the client-go API path prefix; the project path is URL-escaped, so
+// "acme/widgets" appears as "acme%2Fwidgets".
+const base = "/api/v4/projects/acme%2Fwidgets"
+
+func mustWrite(w http.ResponseWriter, b []byte) { _, _ = w.Write(b) }
+
+// router dispatches on "METHOD EscapedPath" so URL-encoded project paths (with
+// %2F) match exactly, which net/http's ServeMux would otherwise decode.
+func router(t *testing.T, routes map[string]http.HandlerFunc) http.Handler {
+	t.Helper()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		key := r.Method + " " + r.URL.EscapedPath()
+		if fn, ok := routes[key]; ok {
+			fn(w, r)
+			return
+		}
+		t.Errorf("unexpected request: %s", key)
+		http.Error(w, "unexpected request", http.StatusNotFound)
+	})
+}
+
+func newTestClient(t *testing.T, h http.Handler) *Client {
+	t.Helper()
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	c, err := gl.NewClient("test-token", gl.WithBaseURL(srv.URL), gl.WithCustomRetryMax(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &Client{gl: c}
+}
+
+func readFixture(t *testing.T, name string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("testdata", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func decodeBody(t *testing.T, r *http.Request) map[string]any {
+	t.Helper()
+	var m map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
+		t.Fatalf("decode request body: %v", err)
+	}
+	return m
+}
+
+func TestListLabeledIssues(t *testing.T) {
+	var gotLabels, gotState string
+	h := router(t, map[string]http.HandlerFunc{
+		"GET " + base + "/issues": func(w http.ResponseWriter, r *http.Request) {
+			gotLabels = r.URL.Query().Get("labels")
+			gotState = r.URL.Query().Get("state")
+			if r.URL.Query().Get("page") == "2" {
+				mustWrite(w, readFixture(t, "issues_page2.json"))
+				return
+			}
+			w.Header().Set("X-Next-Page", "2")
+			mustWrite(w, readFixture(t, "issues_page1.json"))
+		},
+	})
+
+	c := newTestClient(t, h)
+	issues, err := c.ListLabeledIssues(context.Background(), testRepo, "patchr")
+	if err != nil {
+		t.Fatalf("ListLabeledIssues: %v", err)
+	}
+	if gotState != "opened" {
+		t.Errorf("state param = %q, want opened", gotState)
+	}
+	if gotLabels != "patchr" {
+		t.Errorf("labels param = %q, want patchr", gotLabels)
+	}
+	if len(issues) != 2 {
+		t.Fatalf("got %d issues, want 2 (both pages): %+v", len(issues), issues)
+	}
+	providertest.AssertIssuesPopulated(t, issues)
+	providertest.AssertEveryIssueHasLabel(t, issues, "patchr")
+	if issues[0].Number != 201 || issues[0].Author != "dave" {
+		t.Errorf("issue[0] = %+v", issues[0])
+	}
+}
+
+func TestCommentOnIssue(t *testing.T) {
+	var gotBody string
+	h := router(t, map[string]http.HandlerFunc{
+		"POST " + base + "/issues/201/notes": func(w http.ResponseWriter, r *http.Request) {
+			gotBody, _ = decodeBody(t, r)["body"].(string)
+			w.WriteHeader(http.StatusCreated)
+			mustWrite(w, []byte(`{"id":1}`))
+		},
+	})
+	c := newTestClient(t, h)
+	if err := c.CommentOnIssue(context.Background(), testRepo, 201, "please add repro steps"); err != nil {
+		t.Fatalf("CommentOnIssue: %v", err)
+	}
+	if gotBody != "please add repro steps" {
+		t.Errorf("note body = %q", gotBody)
+	}
+}
+
+func TestDefaultBranch(t *testing.T) {
+	h := router(t, map[string]http.HandlerFunc{
+		"GET " + base: func(w http.ResponseWriter, r *http.Request) {
+			mustWrite(w, []byte(`{"default_branch":"main"}`))
+		},
+	})
+	c := newTestClient(t, h)
+	got, err := c.DefaultBranch(context.Background(), testRepo)
+	if err != nil {
+		t.Fatalf("DefaultBranch: %v", err)
+	}
+	if got != "main" {
+		t.Errorf("DefaultBranch = %q, want main", got)
+	}
+}
+
+func TestCreateBranch(t *testing.T) {
+	t.Run("ok", func(t *testing.T) {
+		var gotBranch, gotRef string
+		h := router(t, map[string]http.HandlerFunc{
+			"POST " + base + "/repository/branches": func(w http.ResponseWriter, r *http.Request) {
+				body := decodeBody(t, r)
+				gotBranch, _ = body["branch"].(string)
+				gotRef, _ = body["ref"].(string)
+				w.WriteHeader(http.StatusCreated)
+				mustWrite(w, []byte(`{"name":"patchr/x"}`))
+			},
+		})
+		c := newTestClient(t, h)
+		if err := c.CreateBranch(context.Background(), testRepo, "patchr/x", "main"); err != nil {
+			t.Fatalf("CreateBranch: %v", err)
+		}
+		if gotBranch != "patchr/x" || gotRef != "main" {
+			t.Errorf("branch=%q ref=%q", gotBranch, gotRef)
+		}
+	})
+
+	t.Run("already_exists", func(t *testing.T) {
+		h := router(t, map[string]http.HandlerFunc{
+			"POST " + base + "/repository/branches": func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusBadRequest)
+				mustWrite(w, []byte(`{"message":"Branch already exists"}`))
+			},
+		})
+		c := newTestClient(t, h)
+		err := c.CreateBranch(context.Background(), testRepo, "patchr/x", "main")
+		providertest.AssertErrorIs(t, err, provider.ErrAlreadyExists)
+	})
+}
+
+func TestDeleteBranch(t *testing.T) {
+	called := false
+	h := router(t, map[string]http.HandlerFunc{
+		"DELETE " + base + "/repository/branches/patchr%2Fx": func(w http.ResponseWriter, r *http.Request) {
+			called = true
+			w.WriteHeader(http.StatusNoContent)
+		},
+	})
+	c := newTestClient(t, h)
+	if err := c.DeleteBranch(context.Background(), testRepo, "patchr/x"); err != nil {
+		t.Fatalf("DeleteBranch: %v", err)
+	}
+	if !called {
+		t.Error("delete endpoint not called")
+	}
+}
+
+func TestPushCommits(t *testing.T) {
+	var commitBody map[string]any
+	h := router(t, map[string]http.HandlerFunc{
+		// added.md exists -> update; obsolete.txt not probed (it's a delete).
+		"HEAD " + base + "/repository/files/docs%2Fadded%2Emd": func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		},
+		"POST " + base + "/repository/commits": func(w http.ResponseWriter, r *http.Request) {
+			commitBody = decodeBody(t, r)
+			w.WriteHeader(http.StatusCreated)
+			mustWrite(w, []byte(`{"id":"newsha"}`))
+		},
+	})
+	c := newTestClient(t, h)
+	head, err := c.PushCommits(context.Background(), testRepo, "patchr/x", providertest.StandardCommits())
+	if err != nil {
+		t.Fatalf("PushCommits: %v", err)
+	}
+	if head != "newsha" {
+		t.Errorf("head = %q, want newsha", head)
+	}
+	if commitBody["branch"] != "patchr/x" {
+		t.Errorf("branch = %v, want patchr/x", commitBody["branch"])
+	}
+
+	actions, _ := commitBody["actions"].([]any)
+	if len(actions) != 2 {
+		t.Fatalf("actions = %d, want 2: %v", len(actions), actions)
+	}
+	byPath := map[string]map[string]any{}
+	for _, a := range actions {
+		m := a.(map[string]any)
+		byPath[m["file_path"].(string)] = m
+	}
+	// added.md existed -> "update" with content.
+	if a := byPath["docs/added.md"]; a["action"] != "update" || a["content"] != "hello from patchr\n" {
+		t.Errorf("added action = %v", a)
+	}
+	// obsolete.txt -> "delete".
+	if a := byPath["obsolete.txt"]; a["action"] != "delete" {
+		t.Errorf("delete action = %v", a)
+	}
+}
+
+func TestPushCommitsCreatesMissingFile(t *testing.T) {
+	var commitBody map[string]any
+	h := router(t, map[string]http.HandlerFunc{
+		"HEAD " + base + "/repository/files/docs%2Fadded%2Emd": func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		},
+		"POST " + base + "/repository/commits": func(w http.ResponseWriter, r *http.Request) {
+			commitBody = decodeBody(t, r)
+			w.WriteHeader(http.StatusCreated)
+			mustWrite(w, []byte(`{"id":"newsha"}`))
+		},
+	})
+	c := newTestClient(t, h)
+	if _, err := c.PushCommits(context.Background(), testRepo, "patchr/x", providertest.StandardCommits()); err != nil {
+		t.Fatalf("PushCommits: %v", err)
+	}
+	actions, _ := commitBody["actions"].([]any)
+	for _, a := range actions {
+		m := a.(map[string]any)
+		if m["file_path"] == "docs/added.md" && m["action"] != "create" {
+			t.Errorf("missing file should map to create, got %v", m["action"])
+		}
+	}
+}
+
+func TestOpenPullRequest(t *testing.T) {
+	var body map[string]any
+	h := router(t, map[string]http.HandlerFunc{
+		"POST " + base + "/merge_requests": func(w http.ResponseWriter, r *http.Request) {
+			body = decodeBody(t, r)
+			w.WriteHeader(http.StatusCreated)
+			mustWrite(w, []byte(`{"iid":7,"web_url":"https://gitlab.com/acme/widgets/-/merge_requests/7","source_branch":"patchr/x","target_branch":"main"}`))
+		},
+	})
+	c := newTestClient(t, h)
+	pr, err := c.OpenPullRequest(context.Background(), testRepo, provider.PullRequestSpec{
+		Title:      "Fix the thing",
+		Body:       "Closes #201",
+		HeadBranch: "patchr/x",
+		BaseBranch: "main",
+		Draft:      true,
+	})
+	if err != nil {
+		t.Fatalf("OpenPullRequest: %v", err)
+	}
+	if title, _ := body["title"].(string); title != "Draft: Fix the thing" {
+		t.Errorf("title = %q, want draft-prefixed", title)
+	}
+	if body["source_branch"] != "patchr/x" || body["target_branch"] != "main" {
+		t.Errorf("branches in body = %v", body)
+	}
+	if pr.Number != 7 || pr.HeadBranch != "patchr/x" || pr.BaseBranch != "main" {
+		t.Errorf("pr = %+v", pr)
+	}
+}
+
+func TestMergePullRequest(t *testing.T) {
+	var body map[string]any
+	h := router(t, map[string]http.HandlerFunc{
+		"PUT " + base + "/merge_requests/7/merge": func(w http.ResponseWriter, r *http.Request) {
+			body = decodeBody(t, r)
+			mustWrite(w, []byte(`{"iid":7,"state":"merged"}`))
+		},
+	})
+	c := newTestClient(t, h)
+	err := c.MergePullRequest(context.Background(), testRepo, 7, provider.MergeOptions{
+		Method:       provider.MergeSquash,
+		DeleteBranch: true,
+	})
+	if err != nil {
+		t.Fatalf("MergePullRequest: %v", err)
+	}
+	if body["squash"] != true {
+		t.Errorf("squash = %v, want true", body["squash"])
+	}
+	if body["should_remove_source_branch"] != true {
+		t.Errorf("should_remove_source_branch = %v, want true", body["should_remove_source_branch"])
+	}
+}
+
+func TestClosePullRequest(t *testing.T) {
+	var body map[string]any
+	h := router(t, map[string]http.HandlerFunc{
+		"PUT " + base + "/merge_requests/7": func(w http.ResponseWriter, r *http.Request) {
+			body = decodeBody(t, r)
+			mustWrite(w, []byte(`{"iid":7,"state":"closed"}`))
+		},
+	})
+	c := newTestClient(t, h)
+	if err := c.ClosePullRequest(context.Background(), testRepo, 7); err != nil {
+		t.Fatalf("ClosePullRequest: %v", err)
+	}
+	if body["state_event"] != "close" {
+		t.Errorf("state_event = %v, want close", body["state_event"])
+	}
+}
+
+func TestErrorMapping(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		want   error
+	}{
+		{"not_found", http.StatusNotFound, provider.ErrNotFound},
+		{"unauthorized", http.StatusUnauthorized, provider.ErrAuth},
+		{"forbidden", http.StatusForbidden, provider.ErrAuth},
+		{"rate_limited", http.StatusTooManyRequests, provider.ErrRateLimited},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := router(t, map[string]http.HandlerFunc{
+				"GET " + base: func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(tc.status)
+					mustWrite(w, []byte(`{"message":"boom"}`))
+				},
+			})
+			c := newTestClient(t, h)
+			_, err := c.DefaultBranch(context.Background(), testRepo)
+			providertest.AssertErrorIs(t, err, tc.want)
+		})
+	}
+}

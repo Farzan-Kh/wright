@@ -1,0 +1,13 @@
+[
+  {
+    "id": 9201,
+    "iid": 201,
+    "title": "Retry transient GitLab API failures",
+    "description": "Add backoff for 5xx responses.",
+    "web_url": "https://gitlab.com/acme/widgets/-/issues/201",
+    "author": { "username": "dave" },
+    "labels": ["patchr", "reliability"],
+    "created_at": "2026-06-05T10:00:00Z",
+    "updated_at": "2026-06-06T12:00:00Z"
+  }
+]
