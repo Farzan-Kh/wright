@@ -1,0 +1,31 @@
+# Patchr example configuration.
+#
+# Copy to patchr.yaml and edit. Credentials are NEVER stored here — Patchr reads
+# tokens from environment variables (see token_env / the README's env-var table).
+
+version: 1
+
+repos:
+  - provider: github            # "github" | "gitlab"
+    repo: your-org/your-repo    # GitLab: full project path, nested groups OK
+
+    # api_base_url: https://gitlab.example.com   # GitHub Enterprise / self-hosted GitLab only
+
+    # token_env: MY_TOKEN_VAR   # env var NAME to read the token from.
+                                # Defaults, in order:
+                                #   PATCHR_GITHUB_TOKEN -> GITHUB_TOKEN   (github)
+                                #   PATCHR_GITLAB_TOKEN -> GITLAB_TOKEN   (gitlab)
+
+    trigger_label: patchr       # issue label Patchr acts on; default "patchr"
+
+    # base_branch: main         # default: the repo's default branch, via the API
+
+    auto_merge: false           # default false — explicit opt-in, gated on CI in later phases
+
+    budget:                     # enforced in Phase 1; MaxUSD unit is still an open question
+      max_usd: 2.00
+      max_turns: 30
+
+    llm:
+      provider: claude
+      model: claude-sonnet-4-5

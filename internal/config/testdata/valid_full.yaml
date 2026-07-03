@@ -1,0 +1,24 @@
+version: 1
+repos:
+  - provider: github
+    repo: acme/widgets
+    api_base_url: https://github.acme.example
+    token_env: ACME_GH_TOKEN
+    trigger_label: fixme
+    base_branch: develop
+    auto_merge: true
+    budget:
+      max_usd: 5.00
+      max_turns: 40
+    llm:
+      provider: claude
+      model: claude-sonnet-4-5
+  - provider: gitlab
+    repo: acme/group/subgroup/service
+    trigger_label: patchr
+    budget:
+      max_usd: 1.50
+      max_turns: 20
+    llm:
+      provider: claude
+      model: claude-sonnet-4-5

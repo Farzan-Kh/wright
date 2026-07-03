@@ -1,0 +1,10 @@
+version: 1
+repos:
+  - provider: github
+    repo: acme/widgets
+    budget:
+      max_usd: -1.0
+      max_turns: -5
+    llm:
+      provider: claude
+      model: claude-sonnet-4-5

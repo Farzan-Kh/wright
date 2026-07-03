@@ -1,0 +1,13 @@
+version: 1
+repos:
+  - provider: github
+    repo: acme/widgets
+    llm:
+      provider: claude
+      model: claude-sonnet-4-5
+  - provider: github
+    repo: acme/widgets
+    trigger_label: other
+    llm:
+      provider: claude
+      model: claude-sonnet-4-5

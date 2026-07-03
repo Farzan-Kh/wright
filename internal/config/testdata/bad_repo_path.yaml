@@ -1,0 +1,7 @@
+version: 1
+repos:
+  - provider: github
+    repo: widgets
+    llm:
+      provider: claude
+      model: claude-sonnet-4-5
