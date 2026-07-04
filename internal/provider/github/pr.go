@@ -9,6 +9,32 @@ import (
 	"github.com/farzan-kh/patchr/internal/provider"
 )
 
+// FindOpenPullRequestByHead returns an open pull request for headBranch, or nil.
+func (c *Client) FindOpenPullRequestByHead(ctx context.Context, repo provider.Repo, headBranch string) (*provider.PullRequest, error) {
+	owner, name, err := splitRepo(repo)
+	if err != nil {
+		return nil, err
+	}
+	prs, _, err := c.gh.PullRequests.List(ctx, owner, name, &gh.PullRequestListOptions{
+		State:       "open",
+		Head:        owner + ":" + headBranch,
+		ListOptions: gh.ListOptions{PerPage: 1},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("github: list open pull requests for head %q in %s: %w", headBranch, repo.FullPath, classify(err))
+	}
+	if len(prs) == 0 {
+		return nil, nil
+	}
+	pr := prs[0]
+	return &provider.PullRequest{
+		Number:     pr.GetNumber(),
+		URL:        pr.GetHTMLURL(),
+		HeadBranch: pr.GetHead().GetRef(),
+		BaseBranch: pr.GetBase().GetRef(),
+	}, nil
+}
+
 // OpenPullRequest opens a pull request per spec.
 func (c *Client) OpenPullRequest(ctx context.Context, repo provider.Repo, spec provider.PullRequestSpec) (*provider.PullRequest, error) {
 	owner, name, err := splitRepo(repo)

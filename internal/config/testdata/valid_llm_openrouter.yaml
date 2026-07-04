@@ -1,0 +1,9 @@
+version: 1
+repos:
+  - provider: github
+    repo: acme/widgets
+    llm:
+      provider: openrouter
+      api_key_env: MY_OPENROUTER_KEY
+      agent_model: anthropic/claude-3-5-sonnet
+      gate_model: openai/gpt-4o-mini

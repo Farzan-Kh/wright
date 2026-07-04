@@ -6,26 +6,55 @@
 version: 1
 
 repos:
-  - provider: github            # "github" | "gitlab"
-    repo: your-org/your-repo    # GitLab: full project path, nested groups OK
+  - provider: github # "github" | "gitlab"
+    repo: your-org/your-repo # GitLab: full project path, nested groups OK
 
     # api_base_url: https://gitlab.example.com   # GitHub Enterprise / self-hosted GitLab only
 
     # token_env: MY_TOKEN_VAR   # env var NAME to read the token from.
-                                # Defaults, in order:
-                                #   PATCHR_GITHUB_TOKEN -> GITHUB_TOKEN   (github)
-                                #   PATCHR_GITLAB_TOKEN -> GITLAB_TOKEN   (gitlab)
+    # Defaults, in order:
+    #   PATCHR_GITHUB_TOKEN -> GITHUB_TOKEN   (github)
+    #   PATCHR_GITLAB_TOKEN -> GITLAB_TOKEN   (gitlab)
 
-    trigger_label: patchr       # issue label Patchr acts on; default "patchr"
+    trigger_label: patchr # issue label Patchr acts on; default "patchr"
 
     # base_branch: main         # default: the repo's default branch, via the API
 
-    auto_merge: false           # default false — explicit opt-in, gated on CI in later phases
+    auto_merge: false # default false — explicit opt-in, gated on CI in later phases
 
-    budget:                     # enforced in Phase 1; MaxUSD unit is still an open question
+    budget: # enforced in Phase 1
       max_usd: 2.00
       max_turns: 30
 
     llm:
       provider: claude
-      model: claude-sonnet-4-5
+      auth: api_key # api_key | oauth
+      # api_key_env: ANTHROPIC_API_KEY
+      agent_model: claude-sonnet-5
+      gate_model: claude-haiku-4-5
+      effort: high
+
+      # OAuth/subscription mode is accepted by the schema but NOT activated in
+      # Phase 1 (deferred to Phase 2); `patchr run` rejects auth: oauth. Example:
+      # auth: oauth
+      # oauth:
+      #   access_token_env: PATCHR_CLAUDE_OAUTH_TOKEN
+      #   access_token_expiry_env: PATCHR_CLAUDE_OAUTH_EXPIRES_AT  # RFC3339 timestamp
+      #   refresh_token_env: PATCHR_CLAUDE_OAUTH_REFRESH_TOKEN     # optional
+      #   client_id_env: PATCHR_CLAUDE_OAUTH_CLIENT_ID             # optional (required if refresh_token_env set)
+      #   token_url: https://auth.example.com/oauth/token          # optional (required if refresh_token_env set)
+
+      # OpenRouter example (access 200+ models via a single API key):
+      # provider: openrouter
+      # auth: api_key  # only api_key is supported
+      # api_key_env: OPENROUTER_API_KEY  # or PATCHR_OPENROUTER_API_KEY
+      # agent_model: anthropic/claude-sonnet-4-5
+      # gate_model: openai/gpt-4o-mini
+      # effort: high
+
+    sandbox:
+      image: alpine/git:2.47.2
+      workdir: /workspace
+
+    verify:
+      # command: make test

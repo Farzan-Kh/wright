@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"slices"
 	"strings"
 )
@@ -72,8 +73,46 @@ func (rc *RepoConfig) validate(idx int) []error {
 	if strings.TrimSpace(rc.LLM.Provider) == "" {
 		errs = append(errs, p("llm.provider must not be empty"))
 	}
-	if strings.TrimSpace(rc.LLM.Model) == "" {
-		errs = append(errs, p("llm.model must not be empty"))
+	switch rc.LLM.Auth {
+	case "api_key", "oauth":
+	case "":
+		errs = append(errs, p("llm.auth must not be empty (api_key|oauth)"))
+	default:
+		errs = append(errs, p("llm.auth %q is not api_key|oauth", rc.LLM.Auth))
+	}
+	if strings.TrimSpace(rc.LLM.AgentModel) == "" {
+		errs = append(errs, p("llm.agent_model must not be empty"))
+	}
+	if strings.TrimSpace(rc.LLM.GateModel) == "" {
+		errs = append(errs, p("llm.gate_model must not be empty"))
+	}
+	switch rc.LLM.Effort {
+	case "low", "medium", "high":
+	case "":
+		errs = append(errs, p("llm.effort must not be empty (low|medium|high)"))
+	default:
+		errs = append(errs, p("llm.effort %q is not low|medium|high", rc.LLM.Effort))
+	}
+
+	if rc.LLM.Provider == LLMProviderOpenRouter && rc.LLM.Auth == "oauth" {
+		errs = append(errs, p("llm.auth oauth is not supported for openrouter; use api_key"))
+	}
+
+	if rc.LLM.Auth == "oauth" {
+		if strings.TrimSpace(rc.LLM.OAuth.AccessTokenEnv) == "" {
+			errs = append(errs, p("llm.oauth.access_token_env is required in oauth mode"))
+		}
+		if rc.LLM.OAuth.RefreshTokenEnv != "" || rc.LLM.OAuth.ClientIDEnv != "" || rc.LLM.OAuth.TokenURL != "" {
+			if rc.LLM.OAuth.RefreshTokenEnv == "" || rc.LLM.OAuth.ClientIDEnv == "" || rc.LLM.OAuth.TokenURL == "" {
+				errs = append(errs, p("llm.oauth refresh requires refresh_token_env, client_id_env, and token_url together"))
+			}
+			if rc.LLM.OAuth.TokenURL != "" {
+				u, err := url.Parse(rc.LLM.OAuth.TokenURL)
+				if err != nil || u.Scheme == "" || u.Host == "" {
+					errs = append(errs, p("llm.oauth.token_url %q is not a valid absolute URL", rc.LLM.OAuth.TokenURL))
+				}
+			}
+		}
 	}
 
 	return errs

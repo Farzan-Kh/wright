@@ -55,6 +55,15 @@ func decodeBody(t *testing.T, r *http.Request) map[string]any {
 	return m
 }
 
+func mustJSON(t *testing.T, v any) []byte {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshal json: %v", err)
+	}
+	return b
+}
+
 func TestListLabeledIssues(t *testing.T) {
 	var gotLabels, gotState string
 	mux := http.NewServeMux()
@@ -129,6 +138,73 @@ func TestCommentOnPullRequest(t *testing.T) {
 	}
 	if gotBody != "smoke test comment" {
 		t.Errorf("comment body = %q", gotBody)
+	}
+}
+
+func TestIssueLabelRoundTrip(t *testing.T) {
+	labels := []string{"patchr", "bug"}
+	contains := func(needle string) bool {
+		for _, l := range labels {
+			if l == needle {
+				return true
+			}
+		}
+		return false
+	}
+
+	m := http.NewServeMux()
+	m.HandleFunc("GET /repos/acme/widgets/issues", func(w http.ResponseWriter, r *http.Request) {
+		apiLabels := make([]map[string]string, 0, len(labels))
+		for _, l := range labels {
+			apiLabels = append(apiLabels, map[string]string{"name": l})
+		}
+		mustWrite(w, mustJSON(t, []map[string]any{{
+			"number":     101,
+			"title":      "Issue label round-trip",
+			"body":       "",
+			"html_url":   "https://github.com/acme/widgets/issues/101",
+			"user":       map[string]any{"login": "alice"},
+			"labels":     apiLabels,
+			"created_at": "2026-06-01T10:00:00Z",
+			"updated_at": "2026-06-02T11:30:00Z",
+		}}))
+	})
+	m.HandleFunc("POST /repos/acme/widgets/issues/101/labels", func(w http.ResponseWriter, r *http.Request) {
+		var req []string
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode add-label request: %v", err)
+		}
+		for _, label := range req {
+			if label != "" && !contains(label) {
+				labels = append(labels, label)
+			}
+		}
+		mustWrite(w, []byte(`[]`))
+	})
+	m.HandleFunc("DELETE /repos/acme/widgets/issues/101/labels/needs-human", func(w http.ResponseWriter, r *http.Request) {
+		out := labels[:0]
+		for _, l := range labels {
+			if l != "needs-human" {
+				out = append(out, l)
+			}
+		}
+		labels = out
+		w.WriteHeader(http.StatusOK)
+	})
+
+	c := newTestClient(t, m)
+	providertest.AssertIssueLabelRoundTrip(t, c, testRepo, 101, "patchr", "needs-human")
+}
+
+func TestRemoveIssueLabelAlreadyAbsent(t *testing.T) {
+	m := http.NewServeMux()
+	m.HandleFunc("DELETE /repos/acme/widgets/issues/101/labels/needs-human", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		mustWrite(w, []byte(`{"message":"Label does not exist"}`))
+	})
+	c := newTestClient(t, m)
+	if err := c.RemoveIssueLabel(context.Background(), testRepo, 101, "needs-human"); err != nil {
+		t.Fatalf("RemoveIssueLabel should ignore missing label: %v", err)
 	}
 }
 
@@ -285,6 +361,42 @@ func TestPushCommits(t *testing.T) {
 	}
 	if updateBody["sha"] != "newcommit" {
 		t.Errorf("update ref sha = %v, want newcommit", updateBody["sha"])
+	}
+}
+
+func TestFindOpenPullRequestByHead(t *testing.T) {
+	var gotHead, gotState string
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /repos/acme/widgets/pulls", func(w http.ResponseWriter, r *http.Request) {
+		gotHead = r.URL.Query().Get("head")
+		gotState = r.URL.Query().Get("state")
+		mustWrite(w, []byte(`[{"number":17,"html_url":"https://github.com/acme/widgets/pull/17","head":{"ref":"patchr/issue-101"},"base":{"ref":"main"}}]`))
+	})
+	c := newTestClient(t, mux)
+	pr, err := c.FindOpenPullRequestByHead(context.Background(), testRepo, "patchr/issue-101")
+	if err != nil {
+		t.Fatalf("FindOpenPullRequestByHead: %v", err)
+	}
+	if gotHead != "acme:patchr/issue-101" || gotState != "open" {
+		t.Fatalf("query head/state = %q/%q", gotHead, gotState)
+	}
+	if pr == nil || pr.Number != 17 {
+		t.Fatalf("pr = %+v, want #17", pr)
+	}
+}
+
+func TestFindOpenPullRequestByHeadNone(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /repos/acme/widgets/pulls", func(w http.ResponseWriter, r *http.Request) {
+		mustWrite(w, []byte(`[]`))
+	})
+	c := newTestClient(t, mux)
+	pr, err := c.FindOpenPullRequestByHead(context.Background(), testRepo, "patchr/issue-101")
+	if err != nil {
+		t.Fatalf("FindOpenPullRequestByHead: %v", err)
+	}
+	if pr != nil {
+		t.Fatalf("pr = %+v, want nil", pr)
 	}
 }
 

@@ -12,9 +12,6 @@ import "context"
 // take a Repo so a single Provider value can operate across repos on the same
 // host. Methods return the sentinel errors in errors.go (wrapped with context)
 // so callers can branch with errors.Is.
-//
-// Note: label add/remove (needed for the Phase 1 needs-human path) is
-// deliberately omitted here and will be added additively.
 type Provider interface {
 	// Name reports the provider identifier: "github" or "gitlab".
 	Name() string
@@ -25,6 +22,13 @@ type Provider interface {
 
 	// CommentOnIssue posts body as a comment on the given issue.
 	CommentOnIssue(ctx context.Context, repo Repo, issueNumber int, body string) error
+
+	// AddIssueLabel adds label to the given issue.
+	AddIssueLabel(ctx context.Context, repo Repo, issueNumber int, label string) error
+
+	// RemoveIssueLabel removes label from the given issue. Removing a label that is
+	// already absent succeeds.
+	RemoveIssueLabel(ctx context.Context, repo Repo, issueNumber int, label string) error
 
 	// CommentOnPullRequest posts body as a comment on the given pull request
 	// (GitLab: merge request). This is distinct from CommentOnIssue because
@@ -43,6 +47,10 @@ type Provider interface {
 	// PushCommits creates commits on branch through the provider's commit API
 	// (no local clone in Phase 0) and returns the resulting head SHA.
 	PushCommits(ctx context.Context, repo Repo, branch string, commits []Commit) (string, error)
+
+	// FindOpenPullRequestByHead returns an open PR whose head/source branch matches
+	// headBranch, or nil when no such PR exists.
+	FindOpenPullRequestByHead(ctx context.Context, repo Repo, headBranch string) (*PullRequest, error)
 
 	// OpenPullRequest opens a pull request (GitLab: merge request) per spec.
 	OpenPullRequest(ctx context.Context, repo Repo, spec PullRequestSpec) (*PullRequest, error)

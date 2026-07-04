@@ -9,6 +9,28 @@ import (
 	"github.com/farzan-kh/patchr/internal/provider"
 )
 
+// FindOpenPullRequestByHead returns an open merge request for headBranch, or nil.
+func (c *Client) FindOpenPullRequestByHead(ctx context.Context, repo provider.Repo, headBranch string) (*provider.PullRequest, error) {
+	mrs, _, err := c.gl.MergeRequests.ListProjectMergeRequests(pid(repo), &gl.ListProjectMergeRequestsOptions{
+		State:        gl.Ptr("opened"),
+		SourceBranch: gl.Ptr(headBranch),
+		ListOptions:  gl.ListOptions{PerPage: 1},
+	}, ctxOpt(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("gitlab: list open merge requests for head %q in %s: %w", headBranch, repo.FullPath, classify(err))
+	}
+	if len(mrs) == 0 {
+		return nil, nil
+	}
+	mr := mrs[0]
+	return &provider.PullRequest{
+		Number:     int(mr.IID),
+		URL:        mr.WebURL,
+		HeadBranch: mr.SourceBranch,
+		BaseBranch: mr.TargetBranch,
+	}, nil
+}
+
 // OpenPullRequest opens a merge request per spec. A draft is expressed as a
 // "Draft:" title prefix, GitLab's convention.
 func (c *Client) OpenPullRequest(ctx context.Context, repo provider.Repo, spec provider.PullRequestSpec) (*provider.PullRequest, error) {

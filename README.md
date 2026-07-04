@@ -4,26 +4,26 @@ Patchr is a self-hosted Go daemon that resolves labeled, well-scoped GitHub and
 GitLab issues with an LLM agent and opens pull requests — built from the ground
 up to minimize token cost per resolved issue.
 
-> **Status: pre-alpha (Phase 0).** This is the foundation only: the provider
-> abstraction, config format, and a minimal run-once CLI. There is no poller,
-> sandbox, agent, or verifier yet — those arrive in Phase 1. Nothing here
-> resolves an issue on its own. Interfaces and config may still change.
+> **Status: pre-alpha (Phase 1).** The end-to-end single-repo pipeline is now
+> implemented: poll labeled issues, run a gate, execute an agent in a Docker
+> sandbox, verify with the repo's own tests, and open a PR. Interfaces/config
+> may still evolve while the project hardens toward Phase 2.
 
 ## What works today
 
 - A `Provider` interface with **GitHub** and **GitLab** adapters covering the
-  write path: list labeled issues, comment, create/delete branches, push
-  commits (via each provider's commit API — no local clone), and open/merge/
-  close pull requests.
+  write path (including issue-label add/remove and PR operations).
+- A Phase 1 pipeline: poll → gate → sandboxed agent tool loop → verifier retry
+  loop → git push → PR creation.
+- Per-issue token/cost accounting (USD in API-key mode, tokens/turns in OAuth
+  mode).
 - A YAML config format (`patchr.yaml`) describing one or more repos.
 - A CLI:
-  - `patchr validate` — load and validate the config fully offline, and confirm
-    the resolved token env vars are set.
-  - `patchr once` — construct the provider for one repo, prove auth, and list
-    that repo's open issues carrying the trigger label.
-  - `patchr smoke` — exercise the full write path (branch → commit → PR →
-    comment → cleanup) against a scratch repo you designate. Refuses to run
-    without an explicit `--repo`.
+  - `patchr validate` — load and validate config offline, and confirm required
+    token env vars are set.
+  - `patchr once` — prove provider access and list labeled issues.
+  - `patchr run` — run one full Phase 1 pipeline pass for one repo.
+  - `patchr smoke` — manual provider write-path smoke test.
   - `patchr version` — print the build version.
 
 ## Configuration
@@ -41,13 +41,22 @@ repos:
     trigger_label: patchr       # default "patchr"
     # base_branch: main         # default: repo's default branch via API
     auto_merge: false           # default false — explicit opt-in
-    budget:                     # enforced in Phase 1; unit still open
+    budget:
       max_usd: 2.00
       max_turns: 30
     llm:
-      provider: claude
-      model: claude-sonnet-4-5
+      provider: claude          # "claude" (default) | "openrouter"
+      auth: api_key             # api_key (Phase 1); oauth is deferred to Phase 2
+      agent_model: claude-sonnet-5
+      gate_model: claude-haiku-4-5
+      effort: high
 ```
+
+> **LLM providers.** `claude` is the default and the path the cost-per-issue
+> metric is designed around (Phase 1 is Claude-only per `docs/PHASE_1_PLAN.md`).
+> `openrouter` is an optional extension beyond that plan: it targets OpenRouter's
+> OpenAI-compatible API, supports `auth: api_key` only, and reads its key from
+> `PATCHR_OPENROUTER_API_KEY` / `OPENROUTER_API_KEY`.
 
 Credentials are **never** stored in the config file. Tokens are read from
 environment variables, resolved in this order:
@@ -66,6 +75,7 @@ export PATCHR_GITHUB_TOKEN=ghp_...      # or PATCHR_GITLAB_TOKEN=glpat-...
 cp patchr.example.yaml patchr.yaml      # then edit for your repo
 ./patchr validate --config patchr.yaml
 ./patchr once --config patchr.yaml
+./patchr run --config patchr.yaml
 ```
 
 ## Development
@@ -83,29 +93,16 @@ The test suite makes **zero live API calls** — adapters are tested against
 
 ### A note on `PushCommits`
 
-In Phase 0, `PushCommits` writes through each provider's commit API (GitHub Git
-Data API, GitLab Commits API) rather than a local git clone. This is the
-simplest honest implementation and lets `smoke` exercise the real write
-plumbing. In Phase 1, the sandbox will likely push via real git from a working
-clone, at which point `PushCommits` may become a smoke/bot-commit utility rather
-than the primary write path.
+`patchr run` uses real git inside the sandbox clone (checkout/commit/push).
+`PushCommits` remains available primarily for deterministic provider-level smoke
+and adapter testing.
 
-## Planned package map (Phase 1+)
+## Package map
 
-Phase 0 ships only `internal/{cli,config,provider,version}`. Future phases slot
-in additively — everything new depends on `internal/provider` (domain types) and
-`internal/config`, never the reverse:
+Current implementation centers on `internal/{poller,gate,sandbox,agent,verifier,gitops,pipeline}`
+plus `internal/{config,provider,cli}`.
 
-| Package                         | Phase | Role                                             |
-|---------------------------------|-------|--------------------------------------------------|
-| `internal/poller`               | 1     | Pick up issues labeled with the trigger label.   |
-| `internal/gate`                 | 1     | Issue info-sufficiency triage.                   |
-| `internal/queue`                | 2     | Task queue with concurrency limits and backoff.  |
-| `internal/sandbox`              | 1     | Per-task Docker container with a fresh clone.     |
-| `internal/agent`                | 1     | Bounded agent loop over the LLM.                 |
-| `internal/agent/llm/claude`     | 1     | Claude API adapter.                              |
-| `internal/verifier`             | 1     | Detect and run the repo's tests; feed failures back. |
-| `internal/gitops`               | 1     | Commit, push, and open PRs describing the change. |
+Phase 2 work (queueing/concurrency/reliability hardening) is tracked in `docs/ROADMAP.md`.
 
 ## License
 

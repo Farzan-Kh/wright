@@ -37,7 +37,7 @@ func newSmokeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			p, repo, err := buildProvider(rc)
+			p, repo, _, err := buildProvider(rc)
 			if err != nil {
 				return err
 			}

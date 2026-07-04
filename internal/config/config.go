@@ -9,8 +9,23 @@ const (
 	ProviderGitLab = "gitlab"
 )
 
-// DefaultTriggerLabel is applied when a repo entry omits trigger_label.
-const DefaultTriggerLabel = "patchr"
+// LLM provider identifiers accepted in llm.provider.
+const (
+	LLMProviderClaude     = "claude"
+	LLMProviderOpenRouter = "openrouter"
+)
+
+// Defaults applied when fields are omitted.
+const (
+	DefaultTriggerLabel = "patchr"
+
+	DefaultLLMAuth        = "api_key"
+	DefaultAgentModel     = "claude-sonnet-5"
+	DefaultGateModel      = "claude-haiku-4-5"
+	DefaultLLMEffort      = "high"
+	DefaultSandboxImage   = "alpine/git:2.47.2"
+	DefaultSandboxWorkdir = "/workspace"
+)
 
 // Config is the top-level configuration. repos is a list from day one so that
 // growing to many repos later is not a schema break; Phase 0 commands operate
@@ -44,8 +59,12 @@ type RepoConfig struct {
 	// Budget bounds per-issue spend. Held in the schema from Phase 0; actually
 	// enforced in Phase 1.
 	Budget BudgetConfig `yaml:"budget"`
-	// LLM selects the model that resolves issues for this repo.
+	// LLM selects the models/auth used for gate + agent calls.
 	LLM LLMConfig `yaml:"llm"`
+	// Sandbox configures per-task execution isolation.
+	Sandbox SandboxConfig `yaml:"sandbox"`
+	// Verify optionally overrides auto-detected test command.
+	Verify VerifyConfig `yaml:"verify"`
 }
 
 // BudgetConfig bounds the cost of resolving a single issue. The unit of MaxUSD
@@ -56,18 +75,75 @@ type BudgetConfig struct {
 	MaxTurns int     `yaml:"max_turns"`
 }
 
-// LLMConfig selects the LLM provider and model.
+// LLMConfig selects the LLM provider, auth, and models.
 type LLMConfig struct {
 	Provider string `yaml:"provider"`
-	Model    string `yaml:"model"`
+
+	// Auth is one of: api_key | oauth.
+	Auth string `yaml:"auth"`
+	// APIKeyEnv is the env var name for API-key auth credentials.
+	APIKeyEnv string `yaml:"api_key_env"`
+
+	// Model is a legacy alias for agent_model kept for compatibility.
+	Model string `yaml:"model"`
+
+	AgentModel string `yaml:"agent_model"`
+	GateModel  string `yaml:"gate_model"`
+	Effort     string `yaml:"effort"`
+
+	OAuth OAuthConfig `yaml:"oauth"`
+}
+
+// OAuthConfig configures OAuth/subscription auth material.
+type OAuthConfig struct {
+	AccessTokenEnv       string `yaml:"access_token_env"`
+	AccessTokenExpiryEnv string `yaml:"access_token_expiry_env"`
+	RefreshTokenEnv      string `yaml:"refresh_token_env"`
+	ClientIDEnv          string `yaml:"client_id_env"`
+	TokenURL             string `yaml:"token_url"`
+}
+
+// SandboxConfig configures task containers.
+type SandboxConfig struct {
+	Image   string `yaml:"image"`
+	Workdir string `yaml:"workdir"`
+}
+
+// VerifyConfig configures verification.
+type VerifyConfig struct {
+	Command string `yaml:"command"`
 }
 
 // applyDefaults fills in omitted optional fields. It is called by Load before
 // validation.
 func (c *Config) applyDefaults() {
 	for i := range c.Repos {
-		if c.Repos[i].TriggerLabel == "" {
-			c.Repos[i].TriggerLabel = DefaultTriggerLabel
+		rc := &c.Repos[i]
+		if rc.TriggerLabel == "" {
+			rc.TriggerLabel = DefaultTriggerLabel
+		}
+
+		if rc.LLM.Auth == "" {
+			rc.LLM.Auth = DefaultLLMAuth
+		}
+		if rc.LLM.AgentModel == "" {
+			if rc.LLM.Model != "" { // compatibility with Phase 0 schema.
+				rc.LLM.AgentModel = rc.LLM.Model
+			} else {
+				rc.LLM.AgentModel = DefaultAgentModel
+			}
+		}
+		if rc.LLM.GateModel == "" {
+			rc.LLM.GateModel = DefaultGateModel
+		}
+		if rc.LLM.Effort == "" {
+			rc.LLM.Effort = DefaultLLMEffort
+		}
+		if rc.Sandbox.Image == "" {
+			rc.Sandbox.Image = DefaultSandboxImage
+		}
+		if rc.Sandbox.Workdir == "" {
+			rc.Sandbox.Workdir = DefaultSandboxWorkdir
 		}
 	}
 }

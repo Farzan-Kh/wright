@@ -1,0 +1,301 @@
+package cli
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/farzan-kh/patchr/internal/agent/llm"
+	"github.com/farzan-kh/patchr/internal/config"
+	"github.com/farzan-kh/patchr/internal/cost"
+	"github.com/farzan-kh/patchr/internal/pipeline"
+	"github.com/farzan-kh/patchr/internal/provider"
+	"github.com/farzan-kh/patchr/internal/sandbox"
+)
+
+func TestBuildLLMRejectsOAuthInPhase1(t *testing.T) {
+	rc := &config.RepoConfig{
+		LLM: config.LLMConfig{Provider: config.LLMProviderClaude, Auth: "oauth"},
+	}
+	_, err := buildLLM(rc)
+	if err == nil {
+		t.Fatal("buildLLM(oauth) = nil error, want a Phase 1 not-supported error")
+	}
+	if !strings.Contains(err.Error(), "not supported in Phase 1") || !strings.Contains(err.Error(), "api_key") {
+		t.Fatalf("error = %q, want it to mention Phase 1 and api_key", err)
+	}
+}
+
+func TestRepoRemoteURL(t *testing.T) {
+	tests := []struct {
+		name string
+		rc   config.RepoConfig
+		want string
+	}{
+		{
+			name: "github_saas",
+			rc:   config.RepoConfig{Provider: config.ProviderGitHub, Repo: "acme/widgets"},
+			want: "https://github.com/acme/widgets.git",
+		},
+		{
+			name: "gitlab_saas",
+			rc:   config.RepoConfig{Provider: config.ProviderGitLab, Repo: "group/sub/app"},
+			want: "https://gitlab.com/group/sub/app.git",
+		},
+		{
+			name: "github_enterprise",
+			rc: config.RepoConfig{
+				Provider:   config.ProviderGitHub,
+				Repo:       "acme/widgets",
+				APIBaseURL: "https://ghe.example.com/api/v3",
+			},
+			want: "https://ghe.example.com/acme/widgets.git",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := repoRemoteURL(&tc.rc)
+			if err != nil {
+				t.Fatalf("repoRemoteURL: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("repoRemoteURL = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestGitRemoteUsername(t *testing.T) {
+	if got := gitRemoteUsername(config.ProviderGitHub); got != "x-access-token" {
+		t.Fatalf("github username = %q, want x-access-token", got)
+	}
+	if got := gitRemoteUsername(config.ProviderGitLab); got != "oauth2" {
+		t.Fatalf("gitlab username = %q, want oauth2", got)
+	}
+}
+
+func TestBuildPRBody(t *testing.T) {
+	body := buildPRBody(
+		provider.Issue{Number: 7, Title: "Fix crash", Body: "When clicking save"},
+		"1 file changed, 10 insertions(+), 2 deletions(-)",
+		"go test ./...",
+		"ok\tmodule\t0.123s",
+	)
+
+	for _, frag := range []string{
+		"## What this issue asked for",
+		"#7 Fix crash",
+		"## What changed",
+		"1 file changed",
+		"## Verification",
+		"`go test ./...`",
+		"ok\tmodule",
+	} {
+		if !strings.Contains(body, frag) {
+			t.Fatalf("PR body missing %q\n\n%s", frag, body)
+		}
+	}
+}
+
+type fakeExecProvider struct {
+	findPR            *provider.PullRequest
+	defaultBranch     string
+	openPRCount       int
+	openPRLastSpec    provider.PullRequestSpec
+	commentIssueCalls []string
+}
+
+func (f *fakeExecProvider) Name() string { return "fake" }
+func (f *fakeExecProvider) ListLabeledIssues(context.Context, provider.Repo, string) ([]provider.Issue, error) {
+	return nil, nil
+}
+func (f *fakeExecProvider) CommentOnIssue(_ context.Context, _ provider.Repo, issueNumber int, body string) error {
+	f.commentIssueCalls = append(f.commentIssueCalls, strings.TrimSpace(body))
+	_ = issueNumber
+	return nil
+}
+func (f *fakeExecProvider) AddIssueLabel(context.Context, provider.Repo, int, string) error {
+	return nil
+}
+func (f *fakeExecProvider) RemoveIssueLabel(context.Context, provider.Repo, int, string) error {
+	return nil
+}
+func (f *fakeExecProvider) CommentOnPullRequest(context.Context, provider.Repo, int, string) error {
+	return nil
+}
+func (f *fakeExecProvider) DefaultBranch(context.Context, provider.Repo) (string, error) {
+	if strings.TrimSpace(f.defaultBranch) == "" {
+		return "main", nil
+	}
+	return f.defaultBranch, nil
+}
+func (f *fakeExecProvider) CreateBranch(context.Context, provider.Repo, string, string) error {
+	return nil
+}
+func (f *fakeExecProvider) DeleteBranch(context.Context, provider.Repo, string) error { return nil }
+func (f *fakeExecProvider) PushCommits(context.Context, provider.Repo, string, []provider.Commit) (string, error) {
+	return "", nil
+}
+func (f *fakeExecProvider) FindOpenPullRequestByHead(context.Context, provider.Repo, string) (*provider.PullRequest, error) {
+	return f.findPR, nil
+}
+func (f *fakeExecProvider) OpenPullRequest(_ context.Context, _ provider.Repo, spec provider.PullRequestSpec) (*provider.PullRequest, error) {
+	f.openPRCount++
+	f.openPRLastSpec = spec
+	return &provider.PullRequest{Number: 77, URL: "https://example.com/pr/77", HeadBranch: spec.HeadBranch, BaseBranch: spec.BaseBranch}, nil
+}
+func (f *fakeExecProvider) MergePullRequest(context.Context, provider.Repo, int, provider.MergeOptions) error {
+	return nil
+}
+func (f *fakeExecProvider) ClosePullRequest(context.Context, provider.Repo, int) error { return nil }
+
+type fakeTask struct {
+	sandbox.FakeExec
+	closed bool
+}
+
+func (t *fakeTask) RepoDir() string { return "/workspace/repo" }
+func (t *fakeTask) Close(context.Context) error {
+	t.closed = true
+	return nil
+}
+
+type fakeOrchestrator struct {
+	task     sandbox.Task
+	lastSpec sandbox.TaskSpec
+	starts   int
+}
+
+func (o *fakeOrchestrator) Start(_ context.Context, spec sandbox.TaskSpec) (sandbox.Task, error) {
+	o.starts++
+	o.lastSpec = spec
+	return o.task, nil
+}
+
+func TestIssueExecutorHandleSkipsWhenOpenPRExists(t *testing.T) {
+	fp := &fakeExecProvider{findPR: &provider.PullRequest{Number: 12, URL: "https://example.com/pr/12"}}
+	exec := &issueExecutor{
+		Provider: fp,
+		Repo:     provider.Repo{FullPath: "acme/widgets"},
+		RepoConfig: &config.RepoConfig{
+			Provider: config.ProviderGitHub,
+			Repo:     "acme/widgets",
+			LLM:      config.LLMConfig{Auth: "api_key"},
+		},
+	}
+
+	s, err := exec.Handle(context.Background(), provider.Issue{Number: 9, Title: "Fix"})
+	var skip *pipeline.SkipError
+	if !errors.As(err, &skip) {
+		t.Fatalf("err = %v, want SkipError", err)
+	}
+	if s.Turns != 0 || !s.USDApplicable {
+		t.Fatalf("summary = %+v", s)
+	}
+	if len(fp.commentIssueCalls) != 1 {
+		t.Fatalf("commentIssueCalls = %d, want 1", len(fp.commentIssueCalls))
+	}
+}
+
+func TestIssueExecutorHandleRetriesAfterVerifyFailure(t *testing.T) {
+	fp := &fakeExecProvider{defaultBranch: "main"}
+	llmFake := &llm.FakeProvider{Responses: []llm.MessageResponse{
+		{
+			Message:    llm.Message{Role: "assistant", Content: []llm.ContentBlock{{Type: "text", Text: "first pass"}}},
+			StopReason: "end_turn",
+			Usage:      cost.Usage{InputTokens: 100, OutputTokens: 10},
+		},
+		{
+			Message:    llm.Message{Role: "assistant", Content: []llm.ContentBlock{{Type: "text", Text: "retry pass"}}},
+			StopReason: "end_turn",
+			Usage:      cost.Usage{InputTokens: 80, OutputTokens: 12},
+		},
+	}}
+
+	verifyCalls := 0
+	task := &fakeTask{}
+	task.Files = map[string]string{"go.mod": "module acme/widgets"}
+	task.BashFn = func(command string) (string, error) {
+		switch {
+		case command == "git ls-remote --heads origin 'patchr/issue-11'":
+			return "", nil // branch does not exist remotely
+		case command == "go test ./...":
+			verifyCalls++
+			if verifyCalls == 1 {
+				return "FAIL\tacme/widgets\t0.01s", errors.New("tests failed")
+			}
+			return "ok\tacme/widgets\t0.02s", nil
+		case command == "git checkout -b patchr/issue-11":
+			return "", nil
+		case command == "git add -A":
+			return "", nil
+		case command == "git diff --cached --shortstat":
+			return "1 file changed, 1 insertion(+)\n", nil
+		case strings.HasPrefix(command, "git commit -m "):
+			return "", nil
+		case strings.HasPrefix(command, "git push "):
+			return "", nil
+		default:
+			return "", nil
+		}
+	}
+
+	orch := &fakeOrchestrator{task: task}
+	exec := &issueExecutor{
+		Provider:      fp,
+		Repo:          provider.Repo{FullPath: "acme/widgets"},
+		ProviderToken: "provider-token",
+		LLM:           llmFake,
+		Sandbox:       orch,
+		RepoConfig: &config.RepoConfig{
+			Provider: config.ProviderGitHub,
+			Repo:     "acme/widgets",
+			LLM: config.LLMConfig{
+				Auth:       "api_key",
+				AgentModel: "claude-sonnet-5",
+				Effort:     "high",
+			},
+			Budget: config.BudgetConfig{MaxTurns: 10, MaxUSD: 10},
+		},
+	}
+
+	s, err := exec.Handle(context.Background(), provider.Issue{Number: 11, Title: "Fix flaky test", Body: "details"})
+	if err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+	if s.Turns != 2 {
+		t.Fatalf("turns = %d, want 2", s.Turns)
+	}
+	if verifyCalls != 2 {
+		t.Fatalf("verifyCalls = %d, want 2", verifyCalls)
+	}
+	if fp.openPRCount != 1 {
+		t.Fatalf("openPRCount = %d, want 1", fp.openPRCount)
+	}
+	if fp.openPRLastSpec.HeadBranch != "patchr/issue-11" || fp.openPRLastSpec.BaseBranch != "main" {
+		t.Fatalf("unexpected PR spec: %+v", fp.openPRLastSpec)
+	}
+	if orch.starts != 1 {
+		t.Fatalf("orchestrator starts = %d, want 1", orch.starts)
+	}
+	if !task.closed {
+		t.Fatal("sandbox task should be closed")
+	}
+
+	if len(llmFake.Requests) != 2 {
+		t.Fatalf("llm requests = %d, want 2", len(llmFake.Requests))
+	}
+	foundFeedback := false
+	for _, m := range llmFake.Requests[1].Messages {
+		for _, c := range m.Content {
+			if c.Type == "text" && strings.Contains(c.Text, "Verification failed") {
+				foundFeedback = true
+			}
+		}
+	}
+	if !foundFeedback {
+		t.Fatalf("second LLM request should include verification feedback, got %+v", llmFake.Requests[1].Messages)
+	}
+}

@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	gh "github.com/google/go-github/v78/github"
@@ -52,6 +53,36 @@ func (c *Client) CommentOnIssue(ctx context.Context, repo provider.Repo, issueNu
 	_, _, err = c.gh.Issues.CreateComment(ctx, owner, name, issueNumber, &gh.IssueComment{Body: gh.Ptr(body)})
 	if err != nil {
 		return fmt.Errorf("github: comment on issue #%d in %s: %w", issueNumber, repo.FullPath, classify(err))
+	}
+	return nil
+}
+
+// AddIssueLabel adds label to the issue.
+func (c *Client) AddIssueLabel(ctx context.Context, repo provider.Repo, issueNumber int, label string) error {
+	owner, name, err := splitRepo(repo)
+	if err != nil {
+		return err
+	}
+	_, _, err = c.gh.Issues.AddLabelsToIssue(ctx, owner, name, issueNumber, []string{label})
+	if err != nil {
+		return fmt.Errorf("github: add label %q on issue #%d in %s: %w", label, issueNumber, repo.FullPath, classify(err))
+	}
+	return nil
+}
+
+// RemoveIssueLabel removes label from the issue. GitHub returns 404 when the
+// label is already absent; treat that as success.
+func (c *Client) RemoveIssueLabel(ctx context.Context, repo provider.Repo, issueNumber int, label string) error {
+	owner, name, err := splitRepo(repo)
+	if err != nil {
+		return err
+	}
+	_, err = c.gh.Issues.RemoveLabelForIssue(ctx, owner, name, issueNumber, label)
+	if err != nil {
+		if errors.Is(classify(err), provider.ErrNotFound) {
+			return nil
+		}
+		return fmt.Errorf("github: remove label %q on issue #%d in %s: %w", label, issueNumber, repo.FullPath, classify(err))
 	}
 	return nil
 }

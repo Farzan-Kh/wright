@@ -2,6 +2,7 @@ package gitlab
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -44,6 +45,36 @@ func (c *Client) CommentOnIssue(ctx context.Context, repo provider.Repo, issueNu
 	}, ctxOpt(ctx))
 	if err != nil {
 		return fmt.Errorf("gitlab: comment on issue #%d in %s: %w", issueNumber, repo.FullPath, classify(err))
+	}
+	return nil
+}
+
+// AddIssueLabel adds label to the issue.
+func (c *Client) AddIssueLabel(ctx context.Context, repo provider.Repo, issueNumber int, label string) error {
+	labels := gl.LabelOptions{label}
+	_, _, err := c.gl.Issues.UpdateIssue(pid(repo), int64(issueNumber), &gl.UpdateIssueOptions{
+		AddLabels: &labels,
+	}, ctxOpt(ctx))
+	if err != nil {
+		return fmt.Errorf("gitlab: add label %q on issue #%d in %s: %w", label, issueNumber, repo.FullPath, classify(err))
+	}
+	return nil
+}
+
+// RemoveIssueLabel removes label from the issue. GitLab's UpdateIssue is
+// idempotent for a label that's already absent from the issue, but treat a
+// 404 (e.g. issue or label deleted concurrently) as success too, matching the
+// GitHub adapter's already-absent handling.
+func (c *Client) RemoveIssueLabel(ctx context.Context, repo provider.Repo, issueNumber int, label string) error {
+	labels := gl.LabelOptions{label}
+	_, _, err := c.gl.Issues.UpdateIssue(pid(repo), int64(issueNumber), &gl.UpdateIssueOptions{
+		RemoveLabels: &labels,
+	}, ctxOpt(ctx))
+	if err != nil {
+		if errors.Is(classify(err), provider.ErrNotFound) {
+			return nil
+		}
+		return fmt.Errorf("gitlab: remove label %q on issue #%d in %s: %w", label, issueNumber, repo.FullPath, classify(err))
 	}
 	return nil
 }

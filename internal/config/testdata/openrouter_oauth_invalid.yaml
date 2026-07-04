@@ -1,0 +1,11 @@
+version: 1
+repos:
+  - provider: github
+    repo: acme/widgets
+    llm:
+      provider: openrouter
+      auth: oauth
+      oauth:
+        access_token_env: SOME_TOKEN
+      agent_model: openai/gpt-4o
+      gate_model: openai/gpt-4o-mini

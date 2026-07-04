@@ -31,6 +31,9 @@ func TestLoadValid(t *testing.T) {
 		if gh.TokenEnv != "ACME_GH_TOKEN" {
 			t.Errorf("repo[0] token_env = %q", gh.TokenEnv)
 		}
+		if gh.LLM.Auth != DefaultLLMAuth || gh.LLM.AgentModel != "claude-sonnet-4-5" || gh.LLM.GateModel != DefaultGateModel {
+			t.Errorf("repo[0] llm defaults/legacy model mapping = %+v", gh.LLM)
+		}
 		gl := c.Repos[1]
 		if gl.Provider != ProviderGitLab || gl.Repo != "acme/group/subgroup/service" {
 			t.Errorf("repo[1] provider/repo = %q/%q", gl.Provider, gl.Repo)
@@ -52,6 +55,54 @@ func TestLoadValid(t *testing.T) {
 		if rc.BaseBranch != "" {
 			t.Errorf("base_branch = %q, want empty (resolved at run time)", rc.BaseBranch)
 		}
+		if rc.LLM.AgentModel != "claude-sonnet-4-5" || rc.LLM.GateModel != DefaultGateModel || rc.LLM.Effort != DefaultLLMEffort {
+			t.Errorf("llm defaults = %+v", rc.LLM)
+		}
+		if rc.Sandbox.Image != DefaultSandboxImage || rc.Sandbox.Workdir != DefaultSandboxWorkdir {
+			t.Errorf("sandbox defaults = %+v", rc.Sandbox)
+		}
+	})
+
+	t.Run("llm_api_key_mode", func(t *testing.T) {
+		c, err := Load(filepath.Join("testdata", "valid_llm_api_key.yaml"))
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		rc := c.Repos[0]
+		if rc.LLM.Auth != "api_key" || rc.LLM.APIKeyEnv != "MY_ANTHROPIC_KEY" {
+			t.Fatalf("unexpected llm api key config: %+v", rc.LLM)
+		}
+	})
+
+	t.Run("llm_oauth_mode", func(t *testing.T) {
+		c, err := Load(filepath.Join("testdata", "valid_llm_oauth.yaml"))
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		rc := c.Repos[0]
+		if rc.LLM.Auth != "oauth" || rc.LLM.OAuth.AccessTokenEnv == "" || rc.LLM.OAuth.TokenURL == "" {
+			t.Fatalf("unexpected llm oauth config: %+v", rc.LLM)
+		}
+	})
+
+	t.Run("llm_openrouter_mode", func(t *testing.T) {
+		c, err := Load(filepath.Join("testdata", "valid_llm_openrouter.yaml"))
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		rc := c.Repos[0]
+		if rc.LLM.Provider != LLMProviderOpenRouter {
+			t.Fatalf("provider = %q, want openrouter", rc.LLM.Provider)
+		}
+		if rc.LLM.APIKeyEnv != "MY_OPENROUTER_KEY" {
+			t.Fatalf("api_key_env = %q, want MY_OPENROUTER_KEY", rc.LLM.APIKeyEnv)
+		}
+		if rc.LLM.AgentModel != "anthropic/claude-3-5-sonnet" {
+			t.Fatalf("agent_model = %q", rc.LLM.AgentModel)
+		}
+		if rc.LLM.GateModel != "openai/gpt-4o-mini" {
+			t.Fatalf("gate_model = %q", rc.LLM.GateModel)
+		}
 	})
 }
 
@@ -68,7 +119,10 @@ func TestLoadInvalid(t *testing.T) {
 		{"empty_trigger.yaml", "trigger_label must not be empty"},
 		{"negative_budget.yaml", "budget.max_usd must be >= 0"},
 		{"empty_llm.yaml", "llm.provider must not be empty"},
+		{"bad_llm_auth.yaml", "llm.auth"},
+		{"oauth_missing_access_token_env.yaml", "llm.oauth.access_token_env"},
 		{"duplicate_repos.yaml", "duplicate of repos[0]"},
+		{"openrouter_oauth_invalid.yaml", "oauth is not supported for openrouter"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.file, func(t *testing.T) {
@@ -106,6 +160,9 @@ func TestExampleConfigLoads(t *testing.T) {
 	}
 	if len(c.Repos) != 1 || c.Repos[0].Provider != ProviderGitHub {
 		t.Fatalf("unexpected example contents: %+v", c.Repos)
+	}
+	if c.Repos[0].LLM.AgentModel != "claude-sonnet-5" {
+		t.Fatalf("example should default to sonnet-5, got %q", c.Repos[0].LLM.AgentModel)
 	}
 }
 
@@ -175,6 +232,49 @@ func TestTokenResolution(t *testing.T) {
 		rc := &RepoConfig{Provider: ProviderGitHub}
 		if _, _, ok := rc.ResolveToken(); ok {
 			t.Fatal("ResolveToken: expected ok=false when no vars set")
+		}
+	})
+
+	t.Run("llm_api_key", func(t *testing.T) {
+		t.Setenv("PATCHR_ANTHROPIC_API_KEY", "patchr-anthropic")
+		cfg := LLMConfig{}
+		tok, name, ok := cfg.ResolveAPIKey()
+		if !ok || tok != "patchr-anthropic" || name != "PATCHR_ANTHROPIC_API_KEY" {
+			t.Fatalf("ResolveAPIKey = %q, %q, %v", tok, name, ok)
+		}
+	})
+
+	t.Run("openrouter_api_key_candidates", func(t *testing.T) {
+		cfg := LLMConfig{Provider: LLMProviderOpenRouter}
+		want := []string{"PATCHR_OPENROUTER_API_KEY", "OPENROUTER_API_KEY"}
+		got := cfg.APIKeyEnvCandidates()
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Errorf("openrouter candidates = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("openrouter_api_key_explicit_env", func(t *testing.T) {
+		t.Setenv("PATCHR_OPENROUTER_API_KEY", "or-key")
+		cfg := LLMConfig{Provider: LLMProviderOpenRouter}
+		tok, name, ok := cfg.ResolveAPIKey()
+		if !ok || tok != "or-key" || name != "PATCHR_OPENROUTER_API_KEY" {
+			t.Fatalf("ResolveAPIKey = %q, %q, %v", tok, name, ok)
+		}
+	})
+
+	t.Run("llm_oauth", func(t *testing.T) {
+		t.Setenv("PATCHR_CLAUDE_OAUTH_TOKEN", "oauth-token")
+		t.Setenv("PATCHR_CLAUDE_OAUTH_EXPIRES_AT", "2026-12-31T00:00:00Z")
+		cfg := LLMConfig{OAuth: OAuthConfig{
+			AccessTokenEnv:       "PATCHR_CLAUDE_OAUTH_TOKEN",
+			AccessTokenExpiryEnv: "PATCHR_CLAUDE_OAUTH_EXPIRES_AT",
+		}}
+		tok, exp, name, ok := cfg.ResolveOAuthAccessToken()
+		if !ok || tok != "oauth-token" || name != "PATCHR_CLAUDE_OAUTH_TOKEN" {
+			t.Fatalf("ResolveOAuthAccessToken = %q, %v, %q, %v", tok, exp, name, ok)
+		}
+		if exp.IsZero() {
+			t.Fatalf("expected parsed expiry, got zero")
 		}
 	})
 }

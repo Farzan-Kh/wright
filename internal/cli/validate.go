@@ -28,10 +28,23 @@ func newValidateCmd() *cobra.Command {
 			for i := range cfg.Repos {
 				rc := &cfg.Repos[i]
 				if _, name, ok := rc.ResolveToken(); ok {
-					fmt.Fprintf(out, "ok   %-8s %-40s token from %s\n", rc.Provider, rc.Repo, name)
+					fmt.Fprintf(out, "ok   %-8s %-40s provider token from %s\n", rc.Provider, rc.Repo, name)
 				} else {
-					fmt.Fprintf(out, "MISS %-8s %-40s no token set\n", rc.Provider, rc.Repo)
-					missing = append(missing, fmt.Sprintf("%s: set one of %s", rc.Repo, strings.Join(rc.TokenEnvCandidates(), ", ")))
+					fmt.Fprintf(out, "MISS %-8s %-40s no provider token set\n", rc.Provider, rc.Repo)
+					missing = append(missing, fmt.Sprintf("%s provider token: set one of %s", rc.Repo, strings.Join(rc.TokenEnvCandidates(), ", ")))
+				}
+
+				switch rc.LLM.Auth {
+				case "oauth":
+					fmt.Fprintf(out, "MISS %-8s %-40s llm.auth oauth is not supported in Phase 1\n", rc.Provider, rc.Repo)
+					missing = append(missing, fmt.Sprintf("%s llm.auth \"oauth\" (Claude subscription) is not supported in Phase 1; use auth: api_key (OAuth support is deferred to Phase 2)", rc.Repo))
+				default:
+					if _, name, ok := rc.LLM.ResolveAPIKey(); ok {
+						fmt.Fprintf(out, "ok   %-8s %-40s llm api key from %s\n", rc.Provider, rc.Repo, name)
+					} else {
+						fmt.Fprintf(out, "MISS %-8s %-40s no llm api key set\n", rc.Provider, rc.Repo)
+						missing = append(missing, fmt.Sprintf("%s llm api key: set one of %s", rc.Repo, strings.Join(rc.LLM.APIKeyEnvCandidates(), ", ")))
+					}
 				}
 			}
 

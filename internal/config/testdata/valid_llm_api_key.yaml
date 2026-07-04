@@ -1,0 +1,11 @@
+version: 1
+repos:
+  - provider: github
+    repo: acme/widgets
+    llm:
+      provider: claude
+      auth: api_key
+      api_key_env: MY_ANTHROPIC_KEY
+      agent_model: claude-sonnet-5
+      gate_model: claude-haiku-4-5
+      effort: high

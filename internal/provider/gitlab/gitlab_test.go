@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	gl "gitlab.com/gitlab-org/api/client-go"
@@ -65,6 +66,42 @@ func decodeBody(t *testing.T, r *http.Request) map[string]any {
 		t.Fatalf("decode request body: %v", err)
 	}
 	return m
+}
+
+func mustJSON(t *testing.T, v any) []byte {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshal json: %v", err)
+	}
+	return b
+}
+
+func parseLabels(v any) []string {
+	switch x := v.(type) {
+	case string:
+		if x == "" {
+			return nil
+		}
+		parts := strings.Split(x, ",")
+		labels := make([]string, 0, len(parts))
+		for _, p := range parts {
+			if s := strings.TrimSpace(p); s != "" {
+				labels = append(labels, s)
+			}
+		}
+		return labels
+	case []any:
+		labels := make([]string, 0, len(x))
+		for _, item := range x {
+			if s, _ := item.(string); s != "" {
+				labels = append(labels, s)
+			}
+		}
+		return labels
+	default:
+		return nil
+	}
 }
 
 func TestListLabeledIssues(t *testing.T) {
@@ -136,6 +173,78 @@ func TestCommentOnPullRequest(t *testing.T) {
 	}
 	if gotBody != "smoke test comment" {
 		t.Errorf("note body = %q", gotBody)
+	}
+}
+
+func TestIssueLabelRoundTrip(t *testing.T) {
+	labels := []string{"patchr", "reliability"}
+	contains := func(needle string) bool {
+		for _, l := range labels {
+			if l == needle {
+				return true
+			}
+		}
+		return false
+	}
+
+	h := router(t, map[string]http.HandlerFunc{
+		"GET " + base + "/issues": func(w http.ResponseWriter, r *http.Request) {
+			mustWrite(w, mustJSON(t, []map[string]any{{
+				"id":          9201,
+				"iid":         201,
+				"title":       "Issue label round-trip",
+				"description": "",
+				"web_url":     "https://gitlab.com/acme/widgets/-/issues/201",
+				"author":      map[string]any{"username": "dave"},
+				"labels":      labels,
+				"created_at":  "2026-06-05T10:00:00Z",
+				"updated_at":  "2026-06-06T12:00:00Z",
+			}}))
+		},
+		"PUT " + base + "/issues/201": func(w http.ResponseWriter, r *http.Request) {
+			body := decodeBody(t, r)
+			for _, add := range parseLabels(body["add_labels"]) {
+				if !contains(add) {
+					labels = append(labels, add)
+				}
+			}
+			for _, remove := range parseLabels(body["remove_labels"]) {
+				out := labels[:0]
+				for _, l := range labels {
+					if l != remove {
+						out = append(out, l)
+					}
+				}
+				labels = out
+			}
+			mustWrite(w, mustJSON(t, map[string]any{
+				"id":          9201,
+				"iid":         201,
+				"title":       "Issue label round-trip",
+				"description": "",
+				"web_url":     "https://gitlab.com/acme/widgets/-/issues/201",
+				"author":      map[string]any{"username": "dave"},
+				"labels":      labels,
+				"created_at":  "2026-06-05T10:00:00Z",
+				"updated_at":  "2026-06-06T12:00:00Z",
+			}))
+		},
+	})
+
+	c := newTestClient(t, h)
+	providertest.AssertIssueLabelRoundTrip(t, c, testRepo, 201, "patchr", "needs-human")
+}
+
+func TestRemoveIssueLabelAlreadyAbsent(t *testing.T) {
+	h := router(t, map[string]http.HandlerFunc{
+		"PUT " + base + "/issues/101": func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+			mustWrite(w, []byte(`{"message":"404 Issue Not Found"}`))
+		},
+	})
+	c := newTestClient(t, h)
+	if err := c.RemoveIssueLabel(context.Background(), testRepo, 101, "needs-human"); err != nil {
+		t.Fatalf("RemoveIssueLabel should ignore an already-absent label: %v", err)
 	}
 }
 
@@ -272,6 +381,44 @@ func TestPushCommitsCreatesMissingFile(t *testing.T) {
 		if m["file_path"] == "docs/added.md" && m["action"] != "create" {
 			t.Errorf("missing file should map to create, got %v", m["action"])
 		}
+	}
+}
+
+func TestFindOpenPullRequestByHead(t *testing.T) {
+	var gotSource, gotState string
+	h := router(t, map[string]http.HandlerFunc{
+		"GET " + base + "/merge_requests": func(w http.ResponseWriter, r *http.Request) {
+			gotSource = r.URL.Query().Get("source_branch")
+			gotState = r.URL.Query().Get("state")
+			mustWrite(w, []byte(`[{"iid":9,"web_url":"https://gitlab.com/acme/widgets/-/merge_requests/9","source_branch":"patchr/issue-201","target_branch":"main"}]`))
+		},
+	})
+	c := newTestClient(t, h)
+	pr, err := c.FindOpenPullRequestByHead(context.Background(), testRepo, "patchr/issue-201")
+	if err != nil {
+		t.Fatalf("FindOpenPullRequestByHead: %v", err)
+	}
+	if gotSource != "patchr/issue-201" || gotState != "opened" {
+		t.Fatalf("query source/state = %q/%q", gotSource, gotState)
+	}
+	if pr == nil || pr.Number != 9 {
+		t.Fatalf("pr = %+v, want !9", pr)
+	}
+}
+
+func TestFindOpenPullRequestByHeadNone(t *testing.T) {
+	h := router(t, map[string]http.HandlerFunc{
+		"GET " + base + "/merge_requests": func(w http.ResponseWriter, r *http.Request) {
+			mustWrite(w, []byte(`[]`))
+		},
+	})
+	c := newTestClient(t, h)
+	pr, err := c.FindOpenPullRequestByHead(context.Background(), testRepo, "patchr/issue-201")
+	if err != nil {
+		t.Fatalf("FindOpenPullRequestByHead: %v", err)
+	}
+	if pr != nil {
+		t.Fatalf("pr = %+v, want nil", pr)
 	}
 }
 

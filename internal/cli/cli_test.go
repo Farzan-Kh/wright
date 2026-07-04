@@ -27,7 +27,7 @@ repos:
     repo: acme/widgets
     llm:
       provider: claude
-      model: claude-sonnet-4-5
+      model: claude-sonnet-5
 `
 
 func writeConfig(t *testing.T, body string) string {
@@ -54,6 +54,7 @@ func TestValidateCommand(t *testing.T) {
 
 	t.Run("ok_with_token", func(t *testing.T) {
 		t.Setenv("PATCHR_GITHUB_TOKEN", "dummy")
+		t.Setenv("ANTHROPIC_API_KEY", "dummy-llm")
 		out, err := run("validate", "--config", path)
 		if err != nil {
 			t.Fatalf("validate: %v (out: %s)", err, out)
@@ -66,6 +67,8 @@ func TestValidateCommand(t *testing.T) {
 	t.Run("missing_token", func(t *testing.T) {
 		t.Setenv("PATCHR_GITHUB_TOKEN", "")
 		t.Setenv("GITHUB_TOKEN", "")
+		t.Setenv("ANTHROPIC_API_KEY", "")
+		t.Setenv("PATCHR_ANTHROPIC_API_KEY", "")
 		out, err := run("validate", "--config", path)
 		if err == nil {
 			t.Fatalf("validate: expected error for missing token; out: %s", out)
@@ -81,6 +84,28 @@ func TestValidateCommand(t *testing.T) {
 			t.Fatal("expected error for invalid config")
 		}
 	})
+
+	t.Run("oauth_not_supported_in_phase1", func(t *testing.T) {
+		oauthConfig := writeConfig(t, `version: 1
+repos:
+  - provider: github
+    repo: acme/widgets
+    llm:
+      provider: claude
+      auth: oauth
+      oauth:
+        access_token_env: ANTHROPIC_OAUTH_ACCESS_TOKEN
+`)
+		t.Setenv("PATCHR_GITHUB_TOKEN", "dummy")
+		t.Setenv("ANTHROPIC_OAUTH_ACCESS_TOKEN", "dummy-oauth-token")
+		out, err := run("validate", "--config", oauthConfig)
+		if err == nil {
+			t.Fatalf("validate: expected error for oauth in Phase 1; out: %s", out)
+		}
+		if !strings.Contains(err.Error(), "not supported in Phase 1") {
+			t.Errorf("error = %v, want mention of Phase 1 oauth restriction", err)
+		}
+	})
 }
 
 // smoke must refuse to touch a repo unless --repo is given explicitly. This
@@ -93,5 +118,15 @@ func TestSmokeRequiresRepo(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "--repo is required") {
 		t.Errorf("error = %v, want '--repo is required'", err)
+	}
+}
+
+func TestRunCommandHelp(t *testing.T) {
+	out, err := run("run", "--help")
+	if err != nil {
+		t.Fatalf("run --help: %v", err)
+	}
+	if !strings.Contains(out, "sandbox, agent, verifier") {
+		t.Fatalf("run help output missing expected text: %s", out)
 	}
 }

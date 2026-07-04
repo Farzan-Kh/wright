@@ -32,7 +32,7 @@ func newOnceCmd() *cobra.Command {
 				return err
 			}
 
-			p, repo, err := buildProvider(rc)
+			p, repo, _, err := buildProvider(rc)
 			if err != nil {
 				return err
 			}
@@ -56,17 +56,19 @@ func newOnceCmd() *cobra.Command {
 }
 
 // buildProvider resolves a repo's token and constructs its provider, returning
-// the provider and the domain Repo to address it with.
-func buildProvider(rc *config.RepoConfig) (provider.Provider, provider.Repo, error) {
+// the provider, the domain Repo to address it with, and the resolved token
+// (so callers that also need it, e.g. for git credential injection, don't
+// have to re-resolve it themselves).
+func buildProvider(rc *config.RepoConfig) (provider.Provider, provider.Repo, string, error) {
 	token, _, ok := rc.ResolveToken()
 	if !ok {
-		return nil, provider.Repo{}, fmt.Errorf("no token for %s: set one of %v", rc.Repo, rc.TokenEnvCandidates())
+		return nil, provider.Repo{}, "", fmt.Errorf("no token for %s: set one of %v", rc.Repo, rc.TokenEnvCandidates())
 	}
 	p, err := factory.New(*rc, token)
 	if err != nil {
-		return nil, provider.Repo{}, err
+		return nil, provider.Repo{}, "", err
 	}
-	return p, provider.Repo{FullPath: rc.Repo}, nil
+	return p, provider.Repo{FullPath: rc.Repo}, token, nil
 }
 
 func printIssues(w io.Writer, rc *config.RepoConfig, baseBranch string, issues []provider.Issue) {

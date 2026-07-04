@@ -6,6 +6,7 @@
 package providertest
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"testing"
@@ -71,6 +72,53 @@ func AssertEveryIssueHasLabel(t testing.TB, issues []provider.Issue, label strin
 			t.Errorf("issue #%d missing expected label %q; has %v", iss.Number, label, iss.Labels)
 		}
 	}
+}
+
+// AssertIssueLabelRoundTrip verifies add/remove label behavior through the
+// provider contract by mutating one issue and observing labels through
+// ListLabeledIssues.
+func AssertIssueLabelRoundTrip(t testing.TB, p provider.Provider, repo provider.Repo, issueNumber int, triggerLabel, label string) {
+	t.Helper()
+	ctx := context.Background()
+
+	if err := p.AddIssueLabel(ctx, repo, issueNumber, label); err != nil {
+		t.Fatalf("AddIssueLabel: %v", err)
+	}
+	issues, err := p.ListLabeledIssues(ctx, repo, triggerLabel)
+	if err != nil {
+		t.Fatalf("ListLabeledIssues (after add): %v", err)
+	}
+	withLabel, ok := findIssue(issues, issueNumber)
+	if !ok {
+		t.Fatalf("issue #%d not found after adding label; issues=%+v", issueNumber, issues)
+	}
+	if !slices.Contains(withLabel.Labels, label) {
+		t.Fatalf("issue #%d missing label %q after add; labels=%v", issueNumber, label, withLabel.Labels)
+	}
+
+	if err := p.RemoveIssueLabel(ctx, repo, issueNumber, label); err != nil {
+		t.Fatalf("RemoveIssueLabel: %v", err)
+	}
+	issues, err = p.ListLabeledIssues(ctx, repo, triggerLabel)
+	if err != nil {
+		t.Fatalf("ListLabeledIssues (after remove): %v", err)
+	}
+	withoutLabel, ok := findIssue(issues, issueNumber)
+	if !ok {
+		t.Fatalf("issue #%d not found after removing label; issues=%+v", issueNumber, issues)
+	}
+	if slices.Contains(withoutLabel.Labels, label) {
+		t.Fatalf("issue #%d still has label %q after remove; labels=%v", issueNumber, label, withoutLabel.Labels)
+	}
+}
+
+func findIssue(issues []provider.Issue, number int) (provider.Issue, bool) {
+	for _, iss := range issues {
+		if iss.Number == number {
+			return iss, true
+		}
+	}
+	return provider.Issue{}, false
 }
 
 // AssertErrorIs is errors.Is with a readable failure message.
