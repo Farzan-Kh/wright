@@ -60,7 +60,6 @@ func newRunCmd() *cobra.Command {
 				Repo:            repo,
 				TriggerLabel:    rc.TriggerLabel,
 				NeedsHumanLabel: "needs-human",
-				USDApplicable:   rc.LLM.Auth != "oauth",
 				Poller:          &poller.Poller{Provider: p, Repo: repo, Label: rc.TriggerLabel},
 				Gate:            &gate.Gate{LLM: llmProvider, Model: rc.LLM.GateModel, MaxTokens: 512},
 				OnReady:         exec.Handle,
@@ -123,14 +122,10 @@ func printRunReports(w io.Writer, rc *config.RepoConfig, reports []pipeline.Issu
 		return
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "#\tSTATUS\tDETAIL\tTURNS\tTOKENS(in/out)\tUSD")
+	fmt.Fprintln(tw, "#\tSTATUS\tDETAIL\tTURNS\tTOKENS(in/out)")
 	for _, r := range reports {
 		tokens := fmt.Sprintf("%d/%d", r.Cost.Usage.InputTokens, r.Cost.Usage.OutputTokens)
-		usd := "n/a"
-		if r.Cost.USDApplicable {
-			usd = fmt.Sprintf("$%.4f", r.Cost.USD)
-		}
-		fmt.Fprintf(tw, "%d\t%s\t%s\t%d\t%s\t%s\n", r.IssueNumber, r.Status, r.Detail, r.Cost.Turns, tokens, usd)
+		fmt.Fprintf(tw, "%d\t%s\t%s\t%d\t%s\n", r.IssueNumber, r.Status, r.Detail, r.Cost.Turns, tokens)
 	}
 	_ = tw.Flush()
 }

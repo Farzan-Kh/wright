@@ -63,9 +63,6 @@ func (rc *RepoConfig) validate(idx int) []error {
 		errs = append(errs, p("trigger_label must not be empty"))
 	}
 
-	if rc.Budget.MaxUSD < 0 {
-		errs = append(errs, p("budget.max_usd must be >= 0, got %v", rc.Budget.MaxUSD))
-	}
 	if rc.Budget.MaxTurns < 0 {
 		errs = append(errs, p("budget.max_turns must be >= 0, got %d", rc.Budget.MaxTurns))
 	}

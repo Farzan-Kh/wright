@@ -77,7 +77,6 @@ func TestRunOnceNeedsInfoIncludesGateCost(t *testing.T) {
 		Repo:            provider.Repo{FullPath: "acme/widgets"},
 		TriggerLabel:    "patchr",
 		NeedsHumanLabel: "needs-human",
-		USDApplicable:   true,
 		Poller:          &poller.Poller{Provider: fp, Repo: provider.Repo{FullPath: "acme/widgets"}, Label: "patchr"},
 		Gate:            &gate.Gate{LLM: gLLM, Model: "claude-haiku-4-5", MaxTokens: 256},
 	}
@@ -96,9 +95,6 @@ func TestRunOnceNeedsInfoIncludesGateCost(t *testing.T) {
 	if r.Cost.Turns != 1 || r.Cost.Usage.InputTokens != 1_000_000 {
 		t.Fatalf("cost = %+v", r.Cost)
 	}
-	if r.Cost.USD != 1.0 {
-		t.Fatalf("USD = %v, want 1.0", r.Cost.USD)
-	}
 	if len(fp.comments) != 1 {
 		t.Fatalf("comments = %d, want 1", len(fp.comments))
 	}
@@ -115,18 +111,15 @@ func TestRunOnceCompletedMergesGateAndExecutionCost(t *testing.T) {
 	}}}
 
 	pl := &Pipeline{
-		Provider:      fp,
-		Repo:          provider.Repo{FullPath: "acme/widgets"},
-		TriggerLabel:  "patchr",
-		USDApplicable: true,
-		Poller:        &poller.Poller{Provider: fp, Repo: provider.Repo{FullPath: "acme/widgets"}, Label: "patchr"},
-		Gate:          &gate.Gate{LLM: gLLM, Model: "claude-haiku-4-5", MaxTokens: 256},
+		Provider:     fp,
+		Repo:         provider.Repo{FullPath: "acme/widgets"},
+		TriggerLabel: "patchr",
+		Poller:       &poller.Poller{Provider: fp, Repo: provider.Repo{FullPath: "acme/widgets"}, Label: "patchr"},
+		Gate:         &gate.Gate{LLM: gLLM, Model: "claude-haiku-4-5", MaxTokens: 256},
 		OnReady: func(_ context.Context, _ provider.Issue) (cost.Summary, error) {
 			return cost.Summary{
-				Turns:         2,
-				Usage:         cost.Usage{InputTokens: 20, OutputTokens: 30},
-				USD:           0.25,
-				USDApplicable: true,
+				Turns: 2,
+				Usage: cost.Usage{InputTokens: 20, OutputTokens: 30},
 			}, nil
 		},
 	}
@@ -159,11 +152,10 @@ func TestRunOnceNeedsHumanAddsLabel(t *testing.T) {
 		Repo:            provider.Repo{FullPath: "acme/widgets"},
 		TriggerLabel:    "patchr",
 		NeedsHumanLabel: "needs-human",
-		USDApplicable:   true,
 		Poller:          &poller.Poller{Provider: fp, Repo: provider.Repo{FullPath: "acme/widgets"}, Label: "patchr"},
 		Gate:            &gate.Gate{LLM: gLLM, Model: "claude-haiku-4-5", MaxTokens: 256},
 		OnReady: func(_ context.Context, _ provider.Issue) (cost.Summary, error) {
-			return cost.Summary{Turns: 2, Usage: cost.Usage{InputTokens: 100}, USDApplicable: true}, errors.New("verify failed")
+			return cost.Summary{Turns: 2, Usage: cost.Usage{InputTokens: 100}}, errors.New("verify failed")
 		},
 	}
 

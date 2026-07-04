@@ -15,8 +15,7 @@ up to minimize token cost per resolved issue.
   write path (including issue-label add/remove and PR operations).
 - A Phase 1 pipeline: poll → gate → sandboxed agent tool loop → verifier retry
   loop → git push → PR creation.
-- Per-issue token/cost accounting (USD in API-key mode, tokens/turns in OAuth
-  mode).
+- Per-issue token and turn accounting.
 - A YAML config format (`patchr.yaml`) describing one or more repos.
 - A CLI:
   - `patchr validate` — load and validate config offline, and confirm required
@@ -42,7 +41,6 @@ repos:
     # base_branch: main         # default: repo's default branch via API
     auto_merge: false           # default false — explicit opt-in
     budget:
-      max_usd: 2.00
       max_turns: 30
     llm:
       provider: claude          # "claude" (default) | "openrouter"
@@ -52,9 +50,9 @@ repos:
       effort: high
 ```
 
-> **LLM providers.** `claude` is the default and the path the cost-per-issue
-> metric is designed around (Phase 1 is Claude-only per `docs/PHASE_1_PLAN.md`).
-> `openrouter` is an optional extension beyond that plan: it targets OpenRouter's
+> **LLM providers.** `claude` is the default and the path Phase 1 is built
+> around (Phase 1 is Claude-only per `docs/PHASE_1_PLAN.md`). `openrouter` is an
+> optional extension beyond that plan: it targets OpenRouter's
 > OpenAI-compatible API, supports `auth: api_key` only, and reads its key from
 > `PATCHR_OPENROUTER_API_KEY` / `OPENROUTER_API_KEY`.
 

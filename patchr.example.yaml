@@ -23,7 +23,6 @@ repos:
     auto_merge: false # default false — explicit opt-in, gated on CI in later phases
 
     budget: # enforced in Phase 1
-      max_usd: 2.00
       max_turns: 30
 
     llm:

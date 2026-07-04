@@ -28,7 +28,7 @@ type issueExecutor struct {
 }
 
 func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.Summary, error) {
-	zeroCost := cost.Summary{USDApplicable: e.RepoConfig.LLM.Auth != "oauth"}
+	zeroCost := cost.Summary{}
 	branchName := gitops.BranchName(issue.Number)
 
 	existingPR, err := e.Provider.FindOpenPullRequestByHead(ctx, e.Repo, branchName)
@@ -87,12 +87,10 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 		LLM:  e.LLM,
 		Exec: task,
 		Cfg: agent.Config{
-			Model:         e.RepoConfig.LLM.AgentModel,
-			MaxTokens:     8192,
-			MaxTurns:      e.RepoConfig.Budget.MaxTurns,
-			MaxUSD:        e.RepoConfig.Budget.MaxUSD,
-			USDApplicable: e.RepoConfig.LLM.Auth != "oauth",
-			ThinkEffort:   e.RepoConfig.LLM.Effort,
+			Model:       e.RepoConfig.LLM.AgentModel,
+			MaxTokens:   8192,
+			MaxTurns:    e.RepoConfig.Budget.MaxTurns,
+			ThinkEffort: e.RepoConfig.LLM.Effort,
 		},
 	}
 
@@ -119,13 +117,6 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 				return totalCost, agent.ErrTurnLimit
 			}
 			cfg.MaxTurns = remainingTurns
-		}
-		if cfg.USDApplicable && cfg.MaxUSD > 0 {
-			remainingUSD := cfg.MaxUSD - totalCost.USD
-			if remainingUSD <= 0 {
-				return totalCost, agent.ErrUSDLimit
-			}
-			cfg.MaxUSD = remainingUSD
 		}
 		runner.Cfg = cfg
 
@@ -236,8 +227,6 @@ func mergeCostSummary(a, b cost.Summary) cost.Summary {
 	a.Usage.OutputTokens += b.Usage.OutputTokens
 	a.Usage.CacheCreationInputTokens += b.Usage.CacheCreationInputTokens
 	a.Usage.CacheReadInputTokens += b.Usage.CacheReadInputTokens
-	a.USD += b.USD
-	a.USDApplicable = a.USDApplicable || b.USDApplicable
 	return a
 }
 

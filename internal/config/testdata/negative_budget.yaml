@@ -1,9 +1,8 @@
 version: 1
 repos:
-  - provider: github
+  - provider: bogus
     repo: acme/widgets
     budget:
-      max_usd: -1.0
       max_turns: -5
     llm:
       provider: claude

@@ -8,7 +8,6 @@ repos:
     base_branch: develop
     auto_merge: true
     budget:
-      max_usd: 5.00
       max_turns: 40
     llm:
       provider: claude
@@ -17,7 +16,6 @@ repos:
     repo: acme/group/subgroup/service
     trigger_label: patchr
     budget:
-      max_usd: 1.50
       max_turns: 20
     llm:
       provider: claude

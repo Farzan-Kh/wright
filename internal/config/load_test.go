@@ -25,7 +25,7 @@ func TestLoadValid(t *testing.T) {
 		if gh.BaseBranch != "develop" || !gh.AutoMerge {
 			t.Errorf("repo[0] base_branch=%q auto_merge=%v", gh.BaseBranch, gh.AutoMerge)
 		}
-		if gh.Budget.MaxUSD != 5.00 || gh.Budget.MaxTurns != 40 {
+		if gh.Budget.MaxTurns != 40 {
 			t.Errorf("repo[0] budget = %+v", gh.Budget)
 		}
 		if gh.TokenEnv != "ACME_GH_TOKEN" {
@@ -117,7 +117,7 @@ func TestLoadInvalid(t *testing.T) {
 		{"bad_provider.yaml", "is not github|gitlab"},
 		{"bad_repo_path.yaml", "owner/name"},
 		{"empty_trigger.yaml", "trigger_label must not be empty"},
-		{"negative_budget.yaml", "budget.max_usd must be >= 0"},
+		{"negative_budget.yaml", "budget.max_turns must be >= 0"},
 		{"empty_llm.yaml", "llm.provider must not be empty"},
 		{"bad_llm_auth.yaml", "llm.auth"},
 		{"oauth_missing_access_token_env.yaml", "llm.oauth.access_token_env"},
@@ -137,14 +137,15 @@ func TestLoadInvalid(t *testing.T) {
 	}
 }
 
-// The negative-budget fixture sets both max_usd and max_turns negative; confirm
-// Validate joins both errors rather than stopping at the first.
+// The negative-budget fixture sets an invalid provider and a negative
+// max_turns; confirm Validate joins both errors rather than stopping at the
+// first.
 func TestValidateJoinsAllErrors(t *testing.T) {
 	_, err := Load(filepath.Join("testdata", "negative_budget.yaml"))
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	for _, want := range []string{"budget.max_usd must be >= 0", "budget.max_turns must be >= 0"} {
+	for _, want := range []string{"is not github|gitlab", "budget.max_turns must be >= 0"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error missing %q; got: %v", want, err)
 		}

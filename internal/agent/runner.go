@@ -11,19 +11,14 @@ import (
 	"github.com/farzan-kh/patchr/internal/sandbox"
 )
 
-var (
-	ErrTurnLimit = errors.New("agent: max turns reached")
-	ErrUSDLimit  = errors.New("agent: max usd reached")
-)
+var ErrTurnLimit = errors.New("agent: max turns reached")
 
 // Config configures one bounded agent run.
 type Config struct {
-	Model         string
-	MaxTokens     int
-	MaxTurns      int
-	MaxUSD        float64
-	USDApplicable bool
-	ThinkEffort   string
+	Model       string
+	MaxTokens   int
+	MaxTurns    int
+	ThinkEffort string
 }
 
 // Runner is the hand-written tool-use loop.
@@ -53,7 +48,7 @@ type RunResult struct {
 
 // Run executes the manual loop until end_turn, a hard limit, or an error.
 func (r *Runner) Run(ctx context.Context, req RunRequest) (RunResult, error) {
-	acc := cost.NewAccumulator(r.Cfg.USDApplicable)
+	acc := cost.NewAccumulator()
 	history := append([]llm.Message(nil), req.History...)
 	result := RunResult{History: history}
 
@@ -82,7 +77,7 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 			return result, err
 		}
 
-		acc.Add(r.Cfg.Model, resp.Usage)
+		acc.Add(resp.Usage)
 		s := acc.Summary()
 
 		// Record the turn before any budget decision: the model's output (and its
@@ -96,14 +91,6 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 
 		if resp.StopReason != "tool_use" {
 			return result, nil
-		}
-
-		// The model wants to keep going. Enforce the USD ceiling here, before
-		// spending more, so a completed end_turn on the boundary still succeeds.
-		if r.Cfg.USDApplicable && r.Cfg.MaxUSD > 0 && s.USD >= r.Cfg.MaxUSD {
-			result.BudgetExceeded = true
-			result.BudgetReason = "max_usd"
-			return result, ErrUSDLimit
 		}
 
 		toolResults := make([]llm.ContentBlock, 0)

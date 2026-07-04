@@ -19,7 +19,7 @@ func TestRunStopsOnEndTurn(t *testing.T) {
 	r := &Runner{
 		LLM:  fake,
 		Exec: &sandbox.FakeExec{},
-		Cfg:  Config{Model: "claude-haiku-4-5", MaxTurns: 5, USDApplicable: true},
+		Cfg:  Config{Model: "claude-haiku-4-5", MaxTurns: 5},
 	}
 	got, err := r.Run(context.Background(), RunRequest{
 		History: []llm.Message{{Role: "user", Content: []llm.ContentBlock{{Type: "text", Text: "hi"}}}},
@@ -49,7 +49,7 @@ func TestRunStopsAtTurnCap(t *testing.T) {
 	r := &Runner{
 		LLM:  fake,
 		Exec: &sandbox.FakeExec{},
-		Cfg:  Config{Model: "claude-haiku-4-5", MaxTurns: 1, USDApplicable: true},
+		Cfg:  Config{Model: "claude-haiku-4-5", MaxTurns: 1},
 	}
 	_, err := r.Run(context.Background(), RunRequest{
 		History: []llm.Message{{Role: "user", Content: []llm.ContentBlock{{Type: "text", Text: "hi"}}}},
@@ -57,83 +57,6 @@ func TestRunStopsAtTurnCap(t *testing.T) {
 	})
 	if !errors.Is(err, ErrTurnLimit) {
 		t.Fatalf("err = %v, want ErrTurnLimit", err)
-	}
-}
-
-// toolUseResp is an assistant turn that wants to run a tool, so the runner will
-// try to continue — the point at which the USD ceiling is enforced.
-func toolUseResp(u cost.Usage) llm.MessageResponse {
-	return llm.MessageResponse{
-		Message: llm.Message{Role: "assistant", Content: []llm.ContentBlock{{
-			Type: "tool_use", ToolUseID: "t1", Name: "bash", Input: map[string]any{"command": "ls"},
-		}}},
-		StopReason: "tool_use",
-		Usage:      u,
-	}
-}
-
-func TestRunStopsAtUSDCap(t *testing.T) {
-	fake := &llm.FakeProvider{Responses: []llm.MessageResponse{
-		toolUseResp(cost.Usage{InputTokens: 1_000_000}), // $2.00, over the cap
-	}}
-	r := &Runner{
-		LLM:  fake,
-		Exec: &sandbox.FakeExec{},
-		Cfg:  Config{Model: "claude-sonnet-5", MaxTurns: 5, MaxUSD: 0.5, USDApplicable: true},
-	}
-	_, err := r.Run(context.Background(), RunRequest{
-		History: []llm.Message{{Role: "user", Content: []llm.ContentBlock{{Type: "text", Text: "hi"}}}},
-	})
-	if !errors.Is(err, ErrUSDLimit) {
-		t.Fatalf("err = %v, want ErrUSDLimit", err)
-	}
-}
-
-func TestRunStopsAtUSDCapOnExactBoundary(t *testing.T) {
-	fake := &llm.FakeProvider{Responses: []llm.MessageResponse{
-		toolUseResp(cost.Usage{InputTokens: 1_000_000}), // sonnet-5 input: exactly $2.00 (intro)
-	}}
-	r := &Runner{
-		LLM:  fake,
-		Exec: &sandbox.FakeExec{},
-		Cfg:  Config{Model: "claude-sonnet-5", MaxTurns: 5, MaxUSD: 2.0, USDApplicable: true},
-	}
-	_, err := r.Run(context.Background(), RunRequest{
-		History: []llm.Message{{Role: "user", Content: []llm.ContentBlock{{Type: "text", Text: "hi"}}}},
-	})
-	if !errors.Is(err, ErrUSDLimit) {
-		t.Fatalf("err = %v, want ErrUSDLimit at exact budget boundary", err)
-	}
-}
-
-// A turn that completes (end_turn) is a success even if it pushes usage over the
-// budget — the ceiling only prevents spending on a *further* turn. The finishing
-// message must also survive in the result.
-func TestRunCompletesWhenFinalTurnCrossesUSD(t *testing.T) {
-	fake := &llm.FakeProvider{Responses: []llm.MessageResponse{{
-		Message:    llm.Message{Role: "assistant", Content: []llm.ContentBlock{{Type: "text", Text: "done"}}},
-		StopReason: "end_turn",
-		Usage:      cost.Usage{InputTokens: 1_000_000}, // $2.00, over the $1.00 cap
-	}}}
-	r := &Runner{
-		LLM:  fake,
-		Exec: &sandbox.FakeExec{},
-		Cfg:  Config{Model: "claude-sonnet-5", MaxTurns: 5, MaxUSD: 1.0, USDApplicable: true},
-	}
-	res, err := r.Run(context.Background(), RunRequest{
-		History: []llm.Message{{Role: "user", Content: []llm.ContentBlock{{Type: "text", Text: "hi"}}}},
-	})
-	if err != nil {
-		t.Fatalf("err = %v, want nil (completed turn is a success)", err)
-	}
-	if res.BudgetExceeded {
-		t.Fatalf("BudgetExceeded = true, want false for a completed turn")
-	}
-	if res.StopReason != "end_turn" {
-		t.Fatalf("StopReason = %q, want end_turn", res.StopReason)
-	}
-	if len(res.FinalMessage.Content) != 1 || res.FinalMessage.Content[0].Text != "done" {
-		t.Fatalf("final message not preserved: %+v", res.FinalMessage)
 	}
 }
 
@@ -164,7 +87,7 @@ func TestRunRoundTripsToolResults(t *testing.T) {
 	r := &Runner{
 		LLM:  fake,
 		Exec: exec,
-		Cfg:  Config{Model: "claude-haiku-4-5", MaxTurns: 5, USDApplicable: true},
+		Cfg:  Config{Model: "claude-haiku-4-5", MaxTurns: 5},
 	}
 	got, err := r.Run(context.Background(), RunRequest{
 		History: []llm.Message{{Role: "user", Content: []llm.ContentBlock{{Type: "text", Text: "hi"}}}},

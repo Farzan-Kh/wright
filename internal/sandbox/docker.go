@@ -70,8 +70,9 @@ func (d *Docker) Start(ctx context.Context, spec TaskSpec) (Task, error) {
 	}
 
 	resp, err := d.cli.ContainerCreate(ctx, &container.Config{
-		Image: imageName,
-		Cmd:   []string{"sh", "-lc", "while :; do sleep 3600; done"},
+		Image:      imageName,
+		Entrypoint: []string{"sh", "-lc"},
+		Cmd:        []string{"while :; do sleep 3600; done"},
 	}, taskHostConfig(), nil, nil, "")
 	if err != nil {
 		return nil, fmt.Errorf("sandbox: create container: %w", err)
@@ -93,7 +94,16 @@ func (d *Docker) Start(ctx context.Context, spec TaskSpec) (Task, error) {
 		return nil, fmt.Errorf("sandbox: start container %s: %w", resp.ID, err)
 	}
 
-	if _, err := task.runShell(ctx, workdir, "mkdir -p "+shellQuote(workdir)); err != nil {
+	// The agent's tool contract advertises a "bash" tool, but bare images like
+	// the alpine/git default ship neither bash nor python3, so agent commands
+	// assuming either exists silently fail. Best-effort provision them on
+	// Alpine-based images only (guarded by `command -v apk`) so custom,
+	// non-Alpine sandbox.image values from repo config are left untouched.
+	if _, err := task.runShell(ctx, "/", provisionCmd); err != nil {
+		return nil, fmt.Errorf("sandbox: provision base tools: %w", err)
+	}
+
+	if _, err := task.runShell(ctx, "/", "mkdir -p "+shellQuote(workdir)); err != nil {
 		return nil, fmt.Errorf("sandbox: create workdir: %w", err)
 	}
 	if _, err := task.runShell(ctx, workdir, "mkdir -p "+shellQuote(task.repoDir)); err != nil {
@@ -130,6 +140,11 @@ const (
 	taskMemory    = 2 << 30       // 2 GiB
 	taskPidsLimit = 512
 )
+
+// provisionCmd installs the tools an agent-issued "bash" command commonly
+// assumes exist (bash, python3, curl, make, a C toolchain). It no-ops
+// harmlessly on non-Alpine images, where `command -v apk` fails.
+const provisionCmd = "command -v apk >/dev/null 2>&1 && apk add --no-cache bash python3 py3-pip curl make build-base >/dev/null 2>&1 || true"
 
 func taskHostConfig() *container.HostConfig {
 	pidsLimit := int64(taskPidsLimit)

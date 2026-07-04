@@ -191,7 +191,7 @@ func TestIssueExecutorHandleSkipsWhenOpenPRExists(t *testing.T) {
 	if !errors.As(err, &skip) {
 		t.Fatalf("err = %v, want SkipError", err)
 	}
-	if s.Turns != 0 || !s.USDApplicable {
+	if s.Turns != 0 {
 		t.Fatalf("summary = %+v", s)
 	}
 	if len(fp.commentIssueCalls) != 1 {
@@ -257,7 +257,7 @@ func TestIssueExecutorHandleRetriesAfterVerifyFailure(t *testing.T) {
 				AgentModel: "claude-sonnet-5",
 				Effort:     "high",
 			},
-			Budget: config.BudgetConfig{MaxTurns: 10, MaxUSD: 10},
+			Budget: config.BudgetConfig{MaxTurns: 10},
 		},
 	}
 

@@ -56,8 +56,7 @@ type RepoConfig struct {
 	BaseBranch string `yaml:"base_branch"`
 	// AutoMerge opts this repo into automatic merging. Defaults to false.
 	AutoMerge bool `yaml:"auto_merge"`
-	// Budget bounds per-issue spend. Held in the schema from Phase 0; actually
-	// enforced in Phase 1.
+	// Budget bounds per-issue agent turns.
 	Budget BudgetConfig `yaml:"budget"`
 	// LLM selects the models/auth used for gate + agent calls.
 	LLM LLMConfig `yaml:"llm"`
@@ -67,12 +66,10 @@ type RepoConfig struct {
 	Verify VerifyConfig `yaml:"verify"`
 }
 
-// BudgetConfig bounds the cost of resolving a single issue. The unit of MaxUSD
-// is still an open question (see PROJECT_BRIEF.md); the schema holds it now and
-// enforcement lands in Phase 1.
+// BudgetConfig bounds the number of agent turns spent resolving a single
+// issue.
 type BudgetConfig struct {
-	MaxUSD   float64 `yaml:"max_usd"`
-	MaxTurns int     `yaml:"max_turns"`
+	MaxTurns int `yaml:"max_turns"`
 }
 
 // LLMConfig selects the LLM provider, auth, and models.

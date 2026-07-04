@@ -22,7 +22,6 @@ type Pipeline struct {
 	Repo            provider.Repo
 	TriggerLabel    string
 	NeedsHumanLabel string
-	USDApplicable   bool
 	Poller          *poller.Poller
 	Gate            *gate.Gate
 	OnReady         ReadyHandler
@@ -61,10 +60,10 @@ func (p *Pipeline) RunOnce(ctx context.Context) ([]IssueReport, error) {
 	reports := make([]IssueReport, 0, len(issues))
 	for _, iss := range issues {
 		rep := IssueReport{IssueNumber: iss.Number}
-		total := cost.NewAccumulator(p.USDApplicable)
+		total := cost.NewAccumulator()
 
 		v, gateUsage, err := p.Gate.CheckWithUsage(ctx, iss)
-		total.Add(p.Gate.Model, gateUsage)
+		total.Add(gateUsage)
 		if err != nil {
 			rep.Status = "error"
 			rep.Detail = "gate: " + err.Error()
@@ -126,7 +125,5 @@ func mergeCost(a, b cost.Summary) cost.Summary {
 	a.Usage.OutputTokens += b.Usage.OutputTokens
 	a.Usage.CacheCreationInputTokens += b.Usage.CacheCreationInputTokens
 	a.Usage.CacheReadInputTokens += b.Usage.CacheReadInputTokens
-	a.USD += b.USD
-	a.USDApplicable = a.USDApplicable || b.USDApplicable
 	return a
 }
