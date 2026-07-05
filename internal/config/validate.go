@@ -99,6 +99,24 @@ func (rc *RepoConfig) validate(idx int) []error {
 		errs = append(errs, p("prompt.system_append and prompt.system_override are mutually exclusive"))
 	}
 
+	switch rc.Retry.Strategy {
+	case RetryStrategyExponential, RetryStrategyFixed:
+	default:
+		errs = append(errs, p("retry.strategy %q is not exponential|fixed", rc.Retry.Strategy))
+	}
+	if rc.Retry.MaxAttempts < 0 {
+		errs = append(errs, p("retry.max_attempts must be >= 0, got %d", rc.Retry.MaxAttempts))
+	}
+	if rc.Retry.BaseDelayMS < 0 {
+		errs = append(errs, p("retry.base_delay_ms must be >= 0, got %d", rc.Retry.BaseDelayMS))
+	}
+	if rc.Retry.MaxDelayMS < 0 {
+		errs = append(errs, p("retry.max_delay_ms must be >= 0, got %d", rc.Retry.MaxDelayMS))
+	}
+	if rc.Retry.Exponent < 0 {
+		errs = append(errs, p("retry.exponent must be >= 0, got %v", rc.Retry.Exponent))
+	}
+
 	if rc.LLM.Auth == "oauth" {
 		if strings.TrimSpace(rc.LLM.OAuth.AccessTokenEnv) == "" {
 			errs = append(errs, p("llm.oauth.access_token_env is required in oauth mode"))

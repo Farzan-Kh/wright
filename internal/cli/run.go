@@ -10,6 +10,7 @@ import (
 	"github.com/farzan-kh/patchr/internal/agent/llm"
 	"github.com/farzan-kh/patchr/internal/agent/llm/claude"
 	"github.com/farzan-kh/patchr/internal/agent/llm/openrouter"
+	"github.com/farzan-kh/patchr/internal/agent/llm/retrying"
 	"github.com/farzan-kh/patchr/internal/config"
 	"github.com/farzan-kh/patchr/internal/gate"
 	"github.com/farzan-kh/patchr/internal/pipeline"
@@ -42,7 +43,7 @@ func newRunCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			sb, err := sandbox.NewDocker()
+			sb, err := sandbox.NewDocker(rc.Retry.ToRetryConfig())
 			if err != nil {
 				return err
 			}
@@ -103,7 +104,11 @@ func buildClaudeLLM(rc *config.RepoConfig) (llm.LLMProvider, error) {
 		if !ok {
 			return nil, fmt.Errorf("no llm api key: set one of %v", rc.LLM.APIKeyEnvCandidates())
 		}
-		return claude.New(claude.Config{AuthMode: claude.AuthModeAPIKey, APIKey: key})
+		c, err := claude.New(claude.Config{AuthMode: claude.AuthModeAPIKey, APIKey: key})
+		if err != nil {
+			return nil, err
+		}
+		return retrying.New(c, rc.Retry.ToRetryConfig()), nil
 	}
 }
 
@@ -112,7 +117,11 @@ func buildOpenRouterLLM(rc *config.RepoConfig) (llm.LLMProvider, error) {
 	if !ok {
 		return nil, fmt.Errorf("no openrouter api key: set one of %v", rc.LLM.APIKeyEnvCandidates())
 	}
-	return openrouter.New(openrouter.Config{APIKey: key})
+	c, err := openrouter.New(openrouter.Config{APIKey: key})
+	if err != nil {
+		return nil, err
+	}
+	return retrying.New(c, rc.Retry.ToRetryConfig()), nil
 }
 
 func printRunReports(w io.Writer, rc *config.RepoConfig, reports []pipeline.IssueReport) {

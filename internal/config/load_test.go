@@ -34,9 +34,17 @@ func TestLoadValid(t *testing.T) {
 		if gh.LLM.Auth != DefaultLLMAuth || gh.LLM.AgentModel != "claude-sonnet-4-5" || gh.LLM.GateModel != DefaultGateModel {
 			t.Errorf("repo[0] llm defaults/legacy model mapping = %+v", gh.LLM)
 		}
+		wantRetry := RetryConfig{Strategy: RetryStrategyFixed, MaxAttempts: 5, BaseDelayMS: 250, MaxDelayMS: 5000, Exponent: 1.5}
+		if gh.Retry != wantRetry {
+			t.Errorf("repo[0] retry = %+v, want %+v", gh.Retry, wantRetry)
+		}
 		gl := c.Repos[1]
 		if gl.Provider != ProviderGitLab || gl.Repo != "acme/group/subgroup/service" {
 			t.Errorf("repo[1] provider/repo = %q/%q", gl.Provider, gl.Repo)
+		}
+		wantDefaultRetry := RetryConfig{Strategy: DefaultRetryStrategy, MaxAttempts: DefaultRetryMaxAttempts, BaseDelayMS: DefaultRetryBaseDelayMS, MaxDelayMS: DefaultRetryMaxDelayMS, Exponent: DefaultRetryExponent}
+		if gl.Retry != wantDefaultRetry {
+			t.Errorf("repo[1] retry (no override) = %+v, want defaults %+v", gl.Retry, wantDefaultRetry)
 		}
 	})
 
@@ -60,6 +68,11 @@ func TestLoadValid(t *testing.T) {
 		}
 		if rc.Sandbox.Image != DefaultSandboxImage || rc.Sandbox.Workdir != DefaultSandboxWorkdir {
 			t.Errorf("sandbox defaults = %+v", rc.Sandbox)
+		}
+		if rc.Retry.Strategy != DefaultRetryStrategy || rc.Retry.MaxAttempts != DefaultRetryMaxAttempts ||
+			rc.Retry.BaseDelayMS != DefaultRetryBaseDelayMS || rc.Retry.MaxDelayMS != DefaultRetryMaxDelayMS ||
+			rc.Retry.Exponent != DefaultRetryExponent {
+			t.Errorf("retry defaults = %+v", rc.Retry)
 		}
 	})
 
@@ -138,6 +151,7 @@ func TestLoadInvalid(t *testing.T) {
 		{"duplicate_repos.yaml", "duplicate of repos[0]"},
 		{"openrouter_oauth_invalid.yaml", "oauth is not supported for openrouter"},
 		{"prompt_append_and_override.yaml", "prompt.system_append and prompt.system_override are mutually exclusive"},
+		{"bad_retry_strategy.yaml", "retry.strategy \"linear\" is not exponential|fixed"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.file, func(t *testing.T) {

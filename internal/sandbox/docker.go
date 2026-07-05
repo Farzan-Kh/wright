@@ -13,28 +13,33 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
+
+	"github.com/farzan-kh/patchr/internal/retry"
 )
 
 // Docker orchestrates task containers through the Docker Engine API.
 type Docker struct {
-	cli *client.Client
+	cli   *client.Client
+	retry retry.Config
 }
 
 var _ Orchestrator = (*Docker)(nil)
 
 // NewDocker creates a Docker orchestrator using the local Docker environment.
-func NewDocker() (*Docker, error) {
+// retryCfg controls retries around image pulls, the orchestrator's one
+// genuine network connection attempt.
+func NewDocker(retryCfg retry.Config) (*Docker, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, fmt.Errorf("sandbox: docker client: %w", err)
 	}
-	return &Docker{cli: cli}, nil
+	return &Docker{cli: cli, retry: retryCfg}, nil
 }
 
 // NewDockerWithClient creates a Docker orchestrator from a caller-provided
 // client (used mainly by tests).
-func NewDockerWithClient(cli *client.Client) *Docker {
-	return &Docker{cli: cli}
+func NewDockerWithClient(cli *client.Client, retryCfg retry.Config) *Docker {
+	return &Docker{cli: cli, retry: retryCfg}
 }
 
 // Start creates, starts, and prepares a task container. If CloneURL is set, the
@@ -111,12 +116,18 @@ func (d *Docker) Start(ctx context.Context, spec TaskSpec) (Task, error) {
 	}
 
 	if strings.TrimSpace(spec.CloneURL) != "" {
-		cloneCmd := "git clone --depth=1"
+		// rm -rf first so a retry after a partial clone (e.g. connection drop
+		// mid-transfer) starts clean rather than failing on a non-empty
+		// destination directory.
+		cloneCmd := "rm -rf " + shellQuote(repoDirName) + " && git clone --depth=1"
 		if strings.TrimSpace(spec.BaseBranch) != "" {
 			cloneCmd += " --branch " + shellQuote(spec.BaseBranch)
 		}
 		cloneCmd += " " + shellQuote(spec.CloneURL) + " " + shellQuote(repoDirName)
-		if _, err := task.runShell(ctx, workdir, cloneCmd); err != nil {
+		if err := retry.Do(ctx, d.retry, nil, func(ctx context.Context) error {
+			_, err := task.runShell(ctx, workdir, cloneCmd)
+			return err
+		}); err != nil {
 			return nil, fmt.Errorf("sandbox: clone repo: %w", err)
 		}
 	}
@@ -158,15 +169,17 @@ func taskHostConfig() *container.HostConfig {
 }
 
 func (d *Docker) pullImage(ctx context.Context, imageName string) error {
-	rc, err := d.cli.ImagePull(ctx, imageName, image.PullOptions{})
-	if err != nil {
-		return fmt.Errorf("sandbox: pull image %q: %w", imageName, err)
-	}
-	defer func() { _ = rc.Close() }()
-	if _, err := io.Copy(io.Discard, rc); err != nil {
-		return fmt.Errorf("sandbox: read image pull stream for %q: %w", imageName, err)
-	}
-	return nil
+	return retry.Do(ctx, d.retry, nil, func(ctx context.Context) error {
+		rc, err := d.cli.ImagePull(ctx, imageName, image.PullOptions{})
+		if err != nil {
+			return fmt.Errorf("sandbox: pull image %q: %w", imageName, err)
+		}
+		defer func() { _ = rc.Close() }()
+		if _, err := io.Copy(io.Discard, rc); err != nil {
+			return fmt.Errorf("sandbox: read image pull stream for %q: %w", imageName, err)
+		}
+		return nil
+	})
 }
 
 type dockerTask struct {

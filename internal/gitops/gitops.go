@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/farzan-kh/patchr/internal/provider"
+	"github.com/farzan-kh/patchr/internal/retry"
 	"github.com/farzan-kh/patchr/internal/sandbox"
 )
 
@@ -53,6 +54,9 @@ type Ops struct {
 	Provider   provider.Provider
 	Repo       provider.Repo
 	RemoteUser string
+	// Retry controls retries around git push, the one network connection
+	// attempt CommitAndPush makes directly (as opposed to through Provider).
+	Retry retry.Config
 }
 
 // CommitAndPush commits all staged changes and pushes to the per-issue branch.
@@ -82,7 +86,11 @@ func (o *Ops) CommitAndPush(ctx context.Context, issueNumber int, remoteURL, tok
 	if err != nil {
 		return "", "", err
 	}
-	if _, err := o.Exec.Bash(ctx, "git push "+shellQuote(pushURL)+" HEAD:"+shellQuote(branch)); err != nil {
+	pushCmd := "git push " + shellQuote(pushURL) + " HEAD:" + shellQuote(branch)
+	if err := retry.Do(ctx, o.Retry, nil, func(ctx context.Context) error {
+		_, err := o.Exec.Bash(ctx, pushCmd)
+		return err
+	}); err != nil {
 		return "", "", fmt.Errorf("gitops: push: %w", err)
 	}
 	return branch, strings.TrimSpace(diffSummary), nil

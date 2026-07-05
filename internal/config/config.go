@@ -3,6 +3,12 @@
 // are resolved from environment variables (see token.go).
 package config
 
+import (
+	"time"
+
+	"github.com/farzan-kh/patchr/internal/retry"
+)
+
 // Provider identifiers accepted in the config.
 const (
 	ProviderGitHub = "github"
@@ -15,6 +21,12 @@ const (
 	LLMProviderOpenRouter = "openrouter"
 )
 
+// Retry strategy identifiers accepted in retry.strategy.
+const (
+	RetryStrategyExponential = "exponential"
+	RetryStrategyFixed       = "fixed"
+)
+
 // Defaults applied when fields are omitted.
 const (
 	DefaultTriggerLabel = "patchr"
@@ -25,6 +37,12 @@ const (
 	DefaultLLMEffort      = "high"
 	DefaultSandboxImage   = "alpine/git:2.47.2"
 	DefaultSandboxWorkdir = "/workspace"
+
+	DefaultRetryStrategy    = RetryStrategyExponential
+	DefaultRetryMaxAttempts = 4
+	DefaultRetryBaseDelayMS = 500
+	DefaultRetryMaxDelayMS  = 30_000
+	DefaultRetryExponent    = 2.0
 )
 
 // Config is the top-level configuration. repos is a list from day one so that
@@ -66,6 +84,9 @@ type RepoConfig struct {
 	Verify VerifyConfig `yaml:"verify"`
 	// Prompt customizes the agent's system prompt. See PromptConfig.
 	Prompt PromptConfig `yaml:"prompt"`
+	// Retry configures backoff for connection attempts to the provider API,
+	// the LLM API, and the Docker daemon.
+	Retry RetryConfig `yaml:"retry"`
 }
 
 // BudgetConfig bounds the number of agent turns spent resolving a single
@@ -111,6 +132,42 @@ type SandboxConfig struct {
 // VerifyConfig configures verification.
 type VerifyConfig struct {
 	Command string `yaml:"command"`
+}
+
+// RetryConfig controls retry behavior for connection attempts to external
+// services (provider APIs, the LLM API, and the Docker daemon).
+type RetryConfig struct {
+	// Strategy is "exponential" or "fixed" (simple time-based retries).
+	// Defaults to "exponential".
+	Strategy string `yaml:"strategy"`
+	// MaxAttempts is the total number of tries per connection attempt,
+	// including the first. 1 disables retrying. Defaults to 4.
+	MaxAttempts int `yaml:"max_attempts"`
+	// BaseDelayMS is the delay, in milliseconds, before the first retry (and
+	// every retry under the "fixed" strategy). Defaults to 500.
+	BaseDelayMS int `yaml:"base_delay_ms"`
+	// MaxDelayMS caps any single retry delay, in milliseconds. Defaults to
+	// 30000.
+	MaxDelayMS int `yaml:"max_delay_ms"`
+	// Exponent is the per-attempt delay multiplier under the "exponential"
+	// strategy. Defaults to 2.
+	Exponent float64 `yaml:"exponent"`
+}
+
+// ToRetryConfig converts the YAML-facing settings into internal/retry's
+// runtime Config.
+func (rc RetryConfig) ToRetryConfig() retry.Config {
+	strategy := retry.Exponential
+	if rc.Strategy == RetryStrategyFixed {
+		strategy = retry.Fixed
+	}
+	return retry.Config{
+		Strategy:    strategy,
+		MaxAttempts: rc.MaxAttempts,
+		BaseDelay:   time.Duration(rc.BaseDelayMS) * time.Millisecond,
+		MaxDelay:    time.Duration(rc.MaxDelayMS) * time.Millisecond,
+		Exponent:    rc.Exponent,
+	}
 }
 
 // PromptConfig customizes the agent's system prompt behavior text.
@@ -159,6 +216,22 @@ func (c *Config) applyDefaults() {
 		}
 		if rc.Sandbox.Workdir == "" {
 			rc.Sandbox.Workdir = DefaultSandboxWorkdir
+		}
+
+		if rc.Retry.Strategy == "" {
+			rc.Retry.Strategy = DefaultRetryStrategy
+		}
+		if rc.Retry.MaxAttempts == 0 {
+			rc.Retry.MaxAttempts = DefaultRetryMaxAttempts
+		}
+		if rc.Retry.BaseDelayMS == 0 {
+			rc.Retry.BaseDelayMS = DefaultRetryBaseDelayMS
+		}
+		if rc.Retry.MaxDelayMS == 0 {
+			rc.Retry.MaxDelayMS = DefaultRetryMaxDelayMS
+		}
+		if rc.Retry.Exponent == 0 {
+			rc.Retry.Exponent = DefaultRetryExponent
 		}
 	}
 }

@@ -11,25 +11,27 @@ import (
 	"github.com/farzan-kh/patchr/internal/provider"
 	"github.com/farzan-kh/patchr/internal/provider/github"
 	"github.com/farzan-kh/patchr/internal/provider/gitlab"
+	"github.com/farzan-kh/patchr/internal/provider/retrying"
 )
 
 // New constructs the Provider for a repo entry, authenticated with token. It
 // switches on rc.Provider; the config layer has already validated that value.
+// The returned Provider retries connection attempts per rc.Retry.
 func New(rc config.RepoConfig, token string) (provider.Provider, error) {
+	var (
+		c   provider.Provider
+		err error
+	)
 	switch rc.Provider {
 	case config.ProviderGitHub:
-		c, err := github.New(token, rc.APIBaseURL)
-		if err != nil {
-			return nil, err
-		}
-		return c, nil
+		c, err = github.New(token, rc.APIBaseURL)
 	case config.ProviderGitLab:
-		c, err := gitlab.New(token, rc.APIBaseURL)
-		if err != nil {
-			return nil, err
-		}
-		return c, nil
+		c, err = gitlab.New(token, rc.APIBaseURL)
 	default:
 		return nil, fmt.Errorf("provider: unknown provider %q", rc.Provider)
 	}
+	if err != nil {
+		return nil, err
+	}
+	return retrying.New(c, rc.Retry.ToRetryConfig()), nil
 }

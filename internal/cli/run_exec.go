@@ -142,7 +142,13 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 		})
 	}
 
-	ops := &gitops.Ops{Exec: task, Provider: e.Provider, Repo: e.Repo, RemoteUser: gitRemoteUsername(e.RepoConfig.Provider)}
+	ops := &gitops.Ops{
+		Exec:       task,
+		Provider:   e.Provider,
+		Repo:       e.Repo,
+		RemoteUser: gitRemoteUsername(e.RepoConfig.Provider),
+		Retry:      e.RepoConfig.Retry.ToRetryConfig(),
+	}
 	commitTitle := fmt.Sprintf("patchr: resolve issue #%d", issue.Number)
 	branch, diffSummary, err := ops.CommitAndPush(ctx, issue.Number, remoteURL, e.ProviderToken, commitTitle)
 	if err != nil {

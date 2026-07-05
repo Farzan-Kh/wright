@@ -28,7 +28,9 @@ up to minimize token cost per resolved issue.
 ## Configuration
 
 Patchr reads a `patchr.yaml`. See [`patchr.example.yaml`](patchr.example.yaml)
-for a fully commented example.
+for a fully commented example, and
+[`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) for the full reference of
+every field, default, and validation rule.
 
 ```yaml
 version: 1

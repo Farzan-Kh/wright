@@ -12,6 +12,12 @@ repos:
     llm:
       provider: claude
       model: claude-sonnet-4-5
+    retry:
+      strategy: fixed
+      max_attempts: 5
+      base_delay_ms: 250
+      max_delay_ms: 5000
+      exponent: 1.5
   - provider: gitlab
     repo: acme/group/subgroup/service
     trigger_label: patchr

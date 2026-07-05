@@ -55,6 +55,15 @@ repos:
       image: alpine/git:2.47.2
       workdir: /workspace
 
+    # retry: controls backoff for connection attempts to the provider API,
+    # the LLM API, and the Docker daemon. All fields are optional.
+    # retry:
+    #   strategy: exponential   # exponential | fixed (simple time-based retries)
+    #   max_attempts: 4         # total tries including the first; 1 disables retrying
+    #   base_delay_ms: 500      # delay before the first retry (and every retry under "fixed")
+    #   max_delay_ms: 30000     # cap on any single retry delay
+    #   exponent: 2             # per-attempt delay multiplier under "exponential"
+
     verify:
       # command: make test
 
