@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/farzan-kh/patchr/internal/config"
-	"github.com/farzan-kh/patchr/internal/provider"
+	"github.com/farzan-kh/wright/internal/config"
+	"github.com/farzan-kh/wright/internal/provider"
 )
 
 func newSmokeCmd() *cobra.Command {
@@ -55,7 +55,7 @@ func newSmokeCmd() *cobra.Command {
 // behind.
 func runSmoke(ctx context.Context, out io.Writer, p provider.Provider, rc *config.RepoConfig, repo provider.Repo, keep bool) (err error) {
 	ts := time.Now().UTC().Format("20060102-150405")
-	branch := "patchr/smoke-" + ts
+	branch := "wright/smoke-" + ts
 
 	base := rc.BaseBranch
 	if base == "" {
@@ -84,9 +84,9 @@ func runSmoke(ctx context.Context, out io.Writer, p provider.Provider, rc *confi
 
 	fmt.Fprintf(out, "  2/5 push commit\n")
 	commits := []provider.Commit{{
-		Message: "Patchr smoke test " + ts,
+		Message: "Wright smoke test " + ts,
 		Files: []provider.CommitFile{{
-			Path:    "patchr-smoke/" + ts + ".md",
+			Path:    "wright-smoke/" + ts + ".md",
 			Content: smokeFileContent(ts),
 		}},
 	}}
@@ -96,8 +96,8 @@ func runSmoke(ctx context.Context, out io.Writer, p provider.Provider, rc *confi
 
 	fmt.Fprintf(out, "  3/5 open draft PR\n")
 	pr, err := p.OpenPullRequest(ctx, repo, provider.PullRequestSpec{
-		Title:      "Patchr smoke test " + ts,
-		Body:       "Automated smoke test from `patchr smoke`. Safe to close/delete.",
+		Title:      "Wright smoke test " + ts,
+		Body:       "Automated smoke test from `wright smoke`. Safe to close/delete.",
 		HeadBranch: branch,
 		BaseBranch: base,
 		Draft:      true,
@@ -108,7 +108,7 @@ func runSmoke(ctx context.Context, out io.Writer, p provider.Provider, rc *confi
 	fmt.Fprintf(out, "      -> #%d %s\n", pr.Number, pr.URL)
 
 	fmt.Fprintf(out, "  4/5 comment on PR\n")
-	if err = p.CommentOnPullRequest(ctx, repo, pr.Number, "Patchr smoke test comment. This PR was opened automatically and will be cleaned up."); err != nil {
+	if err = p.CommentOnPullRequest(ctx, repo, pr.Number, "Wright smoke test comment. This PR was opened automatically and will be cleaned up."); err != nil {
 		return fmt.Errorf("comment on pull request: %w", err)
 	}
 
@@ -140,7 +140,7 @@ func runSmoke(ctx context.Context, out io.Writer, p provider.Provider, rc *confi
 }
 
 func smokeFileContent(ts string) string {
-	return "# Patchr smoke test\n\n" +
-		"This file was created by `patchr smoke` at " + ts + " (UTC).\n" +
+	return "# Wright smoke test\n\n" +
+		"This file was created by `wright smoke` at " + ts + " (UTC).\n" +
 		"It exercises the provider write path and is safe to delete.\n"
 }

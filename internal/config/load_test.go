@@ -184,9 +184,9 @@ func TestValidateJoinsAllErrors(t *testing.T) {
 // The committed example config must round-trip through Load unchanged, so the
 // documented example never drifts from what the loader accepts.
 func TestExampleConfigLoads(t *testing.T) {
-	c, err := Load(filepath.Join("..", "..", "patchr.example.yaml"))
+	c, err := Load(filepath.Join("..", "..", "wright.example.yaml"))
 	if err != nil {
-		t.Fatalf("Load(patchr.example.yaml): %v", err)
+		t.Fatalf("Load(wright.example.yaml): %v", err)
 	}
 	if len(c.Repos) != 1 || c.Repos[0].Provider != ProviderGitHub {
 		t.Fatalf("unexpected example contents: %+v", c.Repos)
@@ -223,13 +223,13 @@ func TestSelectRepo(t *testing.T) {
 func TestTokenResolution(t *testing.T) {
 	t.Run("candidates_order", func(t *testing.T) {
 		gh := &RepoConfig{Provider: ProviderGitHub, TokenEnv: "CUSTOM"}
-		want := []string{"CUSTOM", "PATCHR_GITHUB_TOKEN", "GITHUB_TOKEN"}
+		want := []string{"CUSTOM", "WRIGHT_GITHUB_TOKEN", "GITHUB_TOKEN"}
 		got := gh.TokenEnvCandidates()
 		if strings.Join(got, ",") != strings.Join(want, ",") {
 			t.Errorf("github candidates = %v, want %v", got, want)
 		}
 		gl := &RepoConfig{Provider: ProviderGitLab}
-		wantGL := []string{"PATCHR_GITLAB_TOKEN", "GITLAB_TOKEN"}
+		wantGL := []string{"WRIGHT_GITLAB_TOKEN", "GITLAB_TOKEN"}
 		if strings.Join(gl.TokenEnvCandidates(), ",") != strings.Join(wantGL, ",") {
 			t.Errorf("gitlab candidates = %v, want %v", gl.TokenEnvCandidates(), wantGL)
 		}
@@ -237,7 +237,7 @@ func TestTokenResolution(t *testing.T) {
 
 	t.Run("explicit_wins", func(t *testing.T) {
 		t.Setenv("CUSTOM_TOK", "secret-custom")
-		t.Setenv("PATCHR_GITHUB_TOKEN", "secret-patchr")
+		t.Setenv("WRIGHT_GITHUB_TOKEN", "secret-wright")
 		rc := &RepoConfig{Provider: ProviderGitHub, TokenEnv: "CUSTOM_TOK"}
 		tok, name, ok := rc.ResolveToken()
 		if !ok || tok != "secret-custom" || name != "CUSTOM_TOK" {
@@ -245,19 +245,19 @@ func TestTokenResolution(t *testing.T) {
 		}
 	})
 
-	t.Run("patchr_var_before_conventional", func(t *testing.T) {
-		t.Setenv("PATCHR_GITLAB_TOKEN", "patchr-gl")
+	t.Run("wright_var_before_conventional", func(t *testing.T) {
+		t.Setenv("WRIGHT_GITLAB_TOKEN", "wright-gl")
 		t.Setenv("GITLAB_TOKEN", "plain-gl")
 		rc := &RepoConfig{Provider: ProviderGitLab}
 		tok, name, ok := rc.ResolveToken()
-		if !ok || tok != "patchr-gl" || name != "PATCHR_GITLAB_TOKEN" {
+		if !ok || tok != "wright-gl" || name != "WRIGHT_GITLAB_TOKEN" {
 			t.Fatalf("ResolveToken = %q, %q, %v", tok, name, ok)
 		}
 	})
 
 	t.Run("none_set", func(t *testing.T) {
 		// Ensure the vars this case relies on are empty within the test process.
-		t.Setenv("PATCHR_GITHUB_TOKEN", "")
+		t.Setenv("WRIGHT_GITHUB_TOKEN", "")
 		t.Setenv("GITHUB_TOKEN", "")
 		rc := &RepoConfig{Provider: ProviderGitHub}
 		if _, _, ok := rc.ResolveToken(); ok {
@@ -266,17 +266,17 @@ func TestTokenResolution(t *testing.T) {
 	})
 
 	t.Run("llm_api_key", func(t *testing.T) {
-		t.Setenv("PATCHR_ANTHROPIC_API_KEY", "patchr-anthropic")
+		t.Setenv("WRIGHT_ANTHROPIC_API_KEY", "wright-anthropic")
 		cfg := LLMConfig{}
 		tok, name, ok := cfg.ResolveAPIKey()
-		if !ok || tok != "patchr-anthropic" || name != "PATCHR_ANTHROPIC_API_KEY" {
+		if !ok || tok != "wright-anthropic" || name != "WRIGHT_ANTHROPIC_API_KEY" {
 			t.Fatalf("ResolveAPIKey = %q, %q, %v", tok, name, ok)
 		}
 	})
 
 	t.Run("openrouter_api_key_candidates", func(t *testing.T) {
 		cfg := LLMConfig{Provider: LLMProviderOpenRouter}
-		want := []string{"PATCHR_OPENROUTER_API_KEY", "OPENROUTER_API_KEY"}
+		want := []string{"WRIGHT_OPENROUTER_API_KEY", "OPENROUTER_API_KEY"}
 		got := cfg.APIKeyEnvCandidates()
 		if strings.Join(got, ",") != strings.Join(want, ",") {
 			t.Errorf("openrouter candidates = %v, want %v", got, want)
@@ -284,23 +284,23 @@ func TestTokenResolution(t *testing.T) {
 	})
 
 	t.Run("openrouter_api_key_explicit_env", func(t *testing.T) {
-		t.Setenv("PATCHR_OPENROUTER_API_KEY", "or-key")
+		t.Setenv("WRIGHT_OPENROUTER_API_KEY", "or-key")
 		cfg := LLMConfig{Provider: LLMProviderOpenRouter}
 		tok, name, ok := cfg.ResolveAPIKey()
-		if !ok || tok != "or-key" || name != "PATCHR_OPENROUTER_API_KEY" {
+		if !ok || tok != "or-key" || name != "WRIGHT_OPENROUTER_API_KEY" {
 			t.Fatalf("ResolveAPIKey = %q, %q, %v", tok, name, ok)
 		}
 	})
 
 	t.Run("llm_oauth", func(t *testing.T) {
-		t.Setenv("PATCHR_CLAUDE_OAUTH_TOKEN", "oauth-token")
-		t.Setenv("PATCHR_CLAUDE_OAUTH_EXPIRES_AT", "2026-12-31T00:00:00Z")
+		t.Setenv("WRIGHT_CLAUDE_OAUTH_TOKEN", "oauth-token")
+		t.Setenv("WRIGHT_CLAUDE_OAUTH_EXPIRES_AT", "2026-12-31T00:00:00Z")
 		cfg := LLMConfig{OAuth: OAuthConfig{
-			AccessTokenEnv:       "PATCHR_CLAUDE_OAUTH_TOKEN",
-			AccessTokenExpiryEnv: "PATCHR_CLAUDE_OAUTH_EXPIRES_AT",
+			AccessTokenEnv:       "WRIGHT_CLAUDE_OAUTH_TOKEN",
+			AccessTokenExpiryEnv: "WRIGHT_CLAUDE_OAUTH_EXPIRES_AT",
 		}}
 		tok, exp, name, ok := cfg.ResolveOAuthAccessToken()
-		if !ok || tok != "oauth-token" || name != "PATCHR_CLAUDE_OAUTH_TOKEN" {
+		if !ok || tok != "oauth-token" || name != "WRIGHT_CLAUDE_OAUTH_TOKEN" {
 			t.Fatalf("ResolveOAuthAccessToken = %q, %v, %q, %v", tok, exp, name, ok)
 		}
 		if exp.IsZero() {

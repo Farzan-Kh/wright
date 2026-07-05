@@ -1,6 +1,6 @@
-// Package provider defines Patchr's provider-agnostic interface for hosting
+// Package provider defines Wright's provider-agnostic interface for hosting
 // services (GitHub, GitLab) along with the domain types and sentinel errors
-// that adapters map onto. It is a leaf package: everything else in Patchr
+// that adapters map onto. It is a leaf package: everything else in Wright
 // depends on it, and it depends on nothing internal. Adapters live in
 // subpackages (github, gitlab); the factory in factory.go selects one from
 // config.

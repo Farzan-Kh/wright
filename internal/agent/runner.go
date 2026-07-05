@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/farzan-kh/patchr/internal/agent/llm"
-	"github.com/farzan-kh/patchr/internal/cost"
-	"github.com/farzan-kh/patchr/internal/sandbox"
+	"github.com/farzan-kh/wright/internal/agent/llm"
+	"github.com/farzan-kh/wright/internal/cost"
+	"github.com/farzan-kh/wright/internal/sandbox"
 )
 
 var ErrTurnLimit = errors.New("agent: max turns reached")

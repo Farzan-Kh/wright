@@ -6,7 +6,7 @@ import (
 
 	gh "github.com/google/go-github/v78/github"
 
-	"github.com/farzan-kh/patchr/internal/provider"
+	"github.com/farzan-kh/wright/internal/provider"
 )
 
 // FindOpenPullRequestByHead returns an open pull request for headBranch, or nil.

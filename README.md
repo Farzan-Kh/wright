@@ -1,6 +1,6 @@
-# Patchr
+# Wright
 
-Patchr is a self-hosted Go daemon that resolves labeled, well-scoped GitHub and
+Wright is a self-hosted Go daemon that resolves labeled, well-scoped GitHub and
 GitLab issues with an LLM agent and opens pull requests — built from the ground
 up to minimize token cost per resolved issue.
 
@@ -16,18 +16,18 @@ up to minimize token cost per resolved issue.
 - A Phase 1 pipeline: poll → gate → sandboxed agent tool loop → verifier retry
   loop → git push → PR creation.
 - Per-issue token and turn accounting.
-- A YAML config format (`patchr.yaml`) describing one or more repos.
+- A YAML config format (`wright.yaml`) describing one or more repos.
 - A CLI:
-  - `patchr validate` — load and validate config offline, and confirm required
+  - `wright validate` — load and validate config offline, and confirm required
     token env vars are set.
-  - `patchr once` — prove provider access and list labeled issues.
-  - `patchr run` — run one full Phase 1 pipeline pass for one repo.
-  - `patchr smoke` — manual provider write-path smoke test.
-  - `patchr version` — print the build version.
+  - `wright once` — prove provider access and list labeled issues.
+  - `wright run` — run one full Phase 1 pipeline pass for one repo.
+  - `wright smoke` — manual provider write-path smoke test.
+  - `wright version` — print the build version.
 
 ## Configuration
 
-Patchr reads a `patchr.yaml`. See [`patchr.example.yaml`](patchr.example.yaml)
+Wright reads a `wright.yaml`. See [`wright.example.yaml`](wright.example.yaml)
 for a fully commented example, and
 [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) for the full reference of
 every field, default, and validation rule.
@@ -39,7 +39,7 @@ repos:
     repo: your-org/your-repo    # GitLab: full project path, nested groups OK
     # api_base_url: https://gitlab.example.com   # GHE / self-hosted GitLab only
     # token_env: MY_TOKEN_VAR                     # env var NAME; see table below
-    trigger_label: patchr       # default "patchr"
+    trigger_label: wright       # default "wright"
     # base_branch: main         # default: repo's default branch via API
     auto_merge: false           # default false — explicit opt-in
     budget:
@@ -52,13 +52,13 @@ repos:
       effort: high
     # prompt:
     #   system_append: "Always update CHANGELOG.md when you change public behavior."
-    #   # system_override: ...   # advanced — see patchr.example.yaml
+    #   # system_override: ...   # advanced — see wright.example.yaml
 ```
 
 > **`prompt` customization.** `system_append` adds repo-specific instructions
-> after Patchr's default behavior guidance; `system_override` fully replaces
-> it (mutually exclusive with `system_append`; `patchr validate` rejects
-> setting both). Either way, Patchr's *operational contract* — don't
+> after Wright's default behavior guidance; `system_override` fully replaces
+> it (mutually exclusive with `system_append`; `wright validate` rejects
+> setting both). Either way, Wright's *operational contract* — don't
 > self-commit/push, tool path rules, verify-retry behavior — is a separate,
 > always-enforced block that neither field can touch. Only use
 > `system_override` if you know exactly what default guidance you're
@@ -68,7 +68,7 @@ repos:
 > around (Phase 1 is Claude-only per `docs/PHASE_1_PLAN.md`). `openrouter` is an
 > optional extension beyond that plan: it targets OpenRouter's
 > OpenAI-compatible API, supports `auth: api_key` only, and reads its key from
-> `PATCHR_OPENROUTER_API_KEY` / `OPENROUTER_API_KEY`.
+> `WRIGHT_OPENROUTER_API_KEY` / `OPENROUTER_API_KEY`.
 
 Credentials are **never** stored in the config file. Tokens are read from
 environment variables, resolved in this order:
@@ -76,24 +76,24 @@ environment variables, resolved in this order:
 | Order | Source                        | Notes                                  |
 |-------|-------------------------------|----------------------------------------|
 | 1     | `token_env` from the repo entry | Explicit override; you name the var. |
-| 2     | `PATCHR_GITHUB_TOKEN` / `PATCHR_GITLAB_TOKEN` | Patchr-specific, by provider. |
+| 2     | `WRIGHT_GITHUB_TOKEN` / `WRIGHT_GITLAB_TOKEN` | Wright-specific, by provider. |
 | 3     | `GITHUB_TOKEN` / `GITLAB_TOKEN` | Conventional fallback, by provider.  |
 
 ## Quick start
 
 ```bash
 make build
-export PATCHR_GITHUB_TOKEN=ghp_...      # or PATCHR_GITLAB_TOKEN=glpat-...
-cp patchr.example.yaml patchr.yaml      # then edit for your repo
-./patchr validate --config patchr.yaml
-./patchr once --config patchr.yaml
-./patchr run --config patchr.yaml
+export WRIGHT_GITHUB_TOKEN=ghp_...      # or WRIGHT_GITLAB_TOKEN=glpat-...
+cp wright.example.yaml wright.yaml      # then edit for your repo
+./wright validate --config wright.yaml
+./wright once --config wright.yaml
+./wright run --config wright.yaml
 ```
 
 ## Development
 
 ```bash
-make build   # compile ./cmd/patchr with version ldflags
+make build   # compile ./cmd/wright with version ldflags
 make test    # go test ./...   (no live API calls)
 make lint    # golangci-lint run
 make tidy    # go mod tidy
@@ -101,11 +101,11 @@ make tidy    # go mod tidy
 
 The test suite makes **zero live API calls** — adapters are tested against
 `httptest` servers with canned fixtures. Live verification is done manually via
-`patchr smoke` against your own scratch repos.
+`wright smoke` against your own scratch repos.
 
 ### A note on `PushCommits`
 
-`patchr run` uses real git inside the sandbox clone (checkout/commit/push).
+`wright run` uses real git inside the sandbox clone (checkout/commit/push).
 `PushCommits` remains available primarily for deterministic provider-level smoke
 and adapter testing.
 

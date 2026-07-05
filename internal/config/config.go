@@ -1,4 +1,4 @@
-// Package config defines Patchr's YAML configuration format and the routines to
+// Package config defines Wright's YAML configuration format and the routines to
 // load and validate it. Credentials are never part of the config file; tokens
 // are resolved from environment variables (see token.go).
 package config
@@ -6,7 +6,7 @@ package config
 import (
 	"time"
 
-	"github.com/farzan-kh/patchr/internal/retry"
+	"github.com/farzan-kh/wright/internal/retry"
 )
 
 // Provider identifiers accepted in the config.
@@ -29,7 +29,7 @@ const (
 
 // Defaults applied when fields are omitted.
 const (
-	DefaultTriggerLabel = "patchr"
+	DefaultTriggerLabel = "wright"
 
 	DefaultLLMAuth        = "api_key"
 	DefaultAgentModel     = "claude-sonnet-5"
@@ -53,7 +53,7 @@ type Config struct {
 	Repos   []RepoConfig `yaml:"repos"`
 }
 
-// RepoConfig configures Patchr for a single repository (GitHub) or project
+// RepoConfig configures Wright for a single repository (GitHub) or project
 // (GitLab).
 type RepoConfig struct {
 	// Provider is "github" or "gitlab".
@@ -67,7 +67,7 @@ type RepoConfig struct {
 	// TokenEnv names an environment variable to read the token from, taking
 	// precedence over the provider-based defaults (see token.go).
 	TokenEnv string `yaml:"token_env"`
-	// TriggerLabel is the issue label Patchr acts on. Defaults to "patchr".
+	// TriggerLabel is the issue label Wright acts on. Defaults to "wright".
 	TriggerLabel string `yaml:"trigger_label"`
 	// BaseBranch is the branch PRs target. Empty means the repo's default
 	// branch, resolved via the API at run time.
@@ -173,12 +173,12 @@ func (rc RetryConfig) ToRetryConfig() retry.Config {
 // PromptConfig customizes the agent's system prompt behavior text.
 // SystemAppend and SystemOverride are mutually exclusive.
 type PromptConfig struct {
-	// SystemAppend adds repo-specific instructions after Patchr's default
+	// SystemAppend adds repo-specific instructions after Wright's default
 	// behavior guidance (e.g. "always update CHANGELOG.md"). Safe default
 	// choice for most repos.
 	SystemAppend string `yaml:"system_append"`
-	// SystemOverride fully replaces Patchr's default behavior guidance
-	// (identity, scope discipline, guardrails). ADVANCED: Patchr's
+	// SystemOverride fully replaces Wright's default behavior guidance
+	// (identity, scope discipline, guardrails). ADVANCED: Wright's
 	// operational contract (no self-commit/push, tool/path rules) is a
 	// separate, always-enforced block regardless of this setting, but
 	// everything else the default guidance provides is discarded. Only use

@@ -7,15 +7,15 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/farzan-kh/patchr/internal/agent/llm"
-	"github.com/farzan-kh/patchr/internal/agent/llm/claude"
-	"github.com/farzan-kh/patchr/internal/agent/llm/openrouter"
-	"github.com/farzan-kh/patchr/internal/agent/llm/retrying"
-	"github.com/farzan-kh/patchr/internal/config"
-	"github.com/farzan-kh/patchr/internal/gate"
-	"github.com/farzan-kh/patchr/internal/pipeline"
-	"github.com/farzan-kh/patchr/internal/poller"
-	"github.com/farzan-kh/patchr/internal/sandbox"
+	"github.com/farzan-kh/wright/internal/agent/llm"
+	"github.com/farzan-kh/wright/internal/agent/llm/claude"
+	"github.com/farzan-kh/wright/internal/agent/llm/openrouter"
+	"github.com/farzan-kh/wright/internal/agent/llm/retrying"
+	"github.com/farzan-kh/wright/internal/config"
+	"github.com/farzan-kh/wright/internal/gate"
+	"github.com/farzan-kh/wright/internal/pipeline"
+	"github.com/farzan-kh/wright/internal/poller"
+	"github.com/farzan-kh/wright/internal/sandbox"
 )
 
 func newRunCmd() *cobra.Command {

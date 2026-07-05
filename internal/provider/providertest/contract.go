@@ -11,7 +11,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/farzan-kh/patchr/internal/provider"
+	"github.com/farzan-kh/wright/internal/provider"
 )
 
 // StandardCommits returns a fixed commit fixture used by both adapter suites.
@@ -20,9 +20,9 @@ import (
 // deletion, which the two providers encode very differently.
 func StandardCommits() []provider.Commit {
 	return []provider.Commit{{
-		Message: "patchr: standard test commit",
+		Message: "wright: standard test commit",
 		Files: []provider.CommitFile{
-			{Path: "docs/added.md", Content: "hello from patchr\n"},
+			{Path: "docs/added.md", Content: "hello from wright\n"},
 			{Path: "obsolete.txt", Delete: true},
 		},
 	}}

@@ -3,7 +3,7 @@
 //
 // OpenRouter uses only API-key auth. The OpenAI message and tool-call formats
 // are translated to/from the provider-agnostic llm types so the rest of
-// Patchr (agent runner, gate) works without modification.
+// Wright (agent runner, gate) works without modification.
 package openrouter
 
 import (
@@ -15,8 +15,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/farzan-kh/patchr/internal/agent/llm"
-	"github.com/farzan-kh/patchr/internal/cost"
+	"github.com/farzan-kh/wright/internal/agent/llm"
+	"github.com/farzan-kh/wright/internal/cost"
 )
 
 const defaultBaseURL = "https://openrouter.ai/api/v1"
@@ -198,7 +198,7 @@ type apiError struct {
 // ── tool definitions ─────────────────────────────────────────────────────────
 
 // toolSchemas maps Anthropic-style tool-type identifiers to their OpenAI
-// function equivalents. Only the tool types used by Patchr are listed.
+// function equivalents. Only the tool types used by Wright are listed.
 var toolSchemas = map[string]tool{
 	"bash_20250124": {
 		Type: "function",
@@ -379,7 +379,7 @@ func convertAssistantMessage(m llm.Message) requestMessage {
 
 // fromOpenAIResponse converts an OpenRouter response to llm.MessageResponse,
 // mapping OpenAI finish_reason values to the Anthropic-style stop_reason strings
-// the rest of Patchr expects ("end_turn", "tool_use", "max_tokens").
+// the rest of Wright expects ("end_turn", "tool_use", "max_tokens").
 func fromOpenAIResponse(r responseBody) (llm.MessageResponse, error) {
 	if len(r.Choices) == 0 {
 		return llm.MessageResponse{}, errors.New("openrouter: response has no choices")

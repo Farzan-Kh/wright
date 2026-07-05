@@ -1,11 +1,11 @@
 # Configuration reference
 
-Full reference for every field `patchr.yaml` accepts, its default, and the
-validation rules `patchr validate` enforces. See
-[`patchr.example.yaml`](../patchr.example.yaml) for a runnable starting point.
+Full reference for every field `wright.yaml` accepts, its default, and the
+validation rules `wright validate` enforces. See
+[`wright.example.yaml`](../wright.example.yaml) for a runnable starting point.
 
 Config is parsed with unknown-field rejection: any key not listed below fails
-`patchr validate` / `patchr run` immediately instead of being silently
+`wright validate` / `wright run` immediately instead of being silently
 ignored, so typos surface at load time rather than at runtime.
 
 ## Top level
@@ -23,7 +23,7 @@ ignored, so typos surface at load time rather than at runtime.
 | `repo`          | string | —                                | Required. `owner/name` (GitHub) or a full project path, nested groups OK (GitLab). No leading/trailing slash, no empty segments, no whitespace. `provider` + `repo` pairs must be unique across the file. |
 | `api_base_url`  | string | provider's public SaaS API       | Set for GitHub Enterprise or a self-managed GitLab instance. |
 | `token_env`     | string | *(see resolution order)*         | Names the env var to read the provider token from. |
-| `trigger_label` | string | `patchr`                         | Issue label Patchr acts on. Must not be empty. |
+| `trigger_label` | string | `wright`                         | Issue label Wright acts on. Must not be empty. |
 | `base_branch`   | string | repo's default branch (via API)  | Branch PRs target. |
 | `auto_merge`    | bool   | `false`                          | Explicit opt-in. |
 | `budget`        | object | —                                | See [`budget`](#budget). |
@@ -35,13 +35,13 @@ ignored, so typos surface at load time rather than at runtime.
 
 ### Repo token resolution order
 
-`token_env`, if set, always wins. Otherwise Patchr checks, most specific
+`token_env`, if set, always wins. Otherwise Wright checks, most specific
 first:
 
 | Order | Source                                          |
 |-------|--------------------------------------------------|
 | 1     | `token_env` from the repo entry (explicit)       |
-| 2     | `PATCHR_GITHUB_TOKEN` / `PATCHR_GITLAB_TOKEN`    |
+| 2     | `WRIGHT_GITHUB_TOKEN` / `WRIGHT_GITLAB_TOKEN`    |
 | 3     | `GITHUB_TOKEN` / `GITLAB_TOKEN` (conventional)    |
 
 If none of the candidates are set, the command fails and reports which env
@@ -58,7 +58,7 @@ vars it looked for.
 | Field         | Type   | Default            | Notes |
 |---------------|--------|---------------------|-------|
 | `provider`    | string | `claude`            | `claude` \| `openrouter`. Must not be empty. |
-| `auth`        | string | `api_key`           | `api_key` \| `oauth`. **`oauth` is accepted by the schema but rejected by `patchr run`/`patchr validate` in Phase 1** ("`llm.auth "oauth" (Claude subscription) is not supported in Phase 1; use auth: api_key`" — deferred to Phase 2). |
+| `auth`        | string | `api_key`           | `api_key` \| `oauth`. **`oauth` is accepted by the schema but rejected by `wright run`/`wright validate` in Phase 1** ("`llm.auth "oauth" (Claude subscription) is not supported in Phase 1; use auth: api_key`" — deferred to Phase 2). |
 | `api_key_env` | string | *(see resolution order)* | Env var to read the LLM API key from. |
 | `model`       | string | —                    | **Legacy alias** for `agent_model`, kept for compatibility with the Phase 0 schema. If `agent_model` is unset and `model` is set, `model`'s value is used as `agent_model`. Prefer `agent_model` in new configs. |
 | `agent_model` | string | `claude-sonnet-5`    | Model used for the agent tool loop. |
@@ -76,8 +76,8 @@ validation error.
 
 | Provider     | Order |
 |--------------|-------|
-| `claude` (or unrecognized) | `PATCHR_ANTHROPIC_API_KEY` → `ANTHROPIC_API_KEY` |
-| `openrouter` | `PATCHR_OPENROUTER_API_KEY` → `OPENROUTER_API_KEY` |
+| `claude` (or unrecognized) | `WRIGHT_ANTHROPIC_API_KEY` → `ANTHROPIC_API_KEY` |
+| `openrouter` | `WRIGHT_OPENROUTER_API_KEY` → `OPENROUTER_API_KEY` |
 
 ### `llm.oauth`
 
@@ -105,7 +105,7 @@ is currently rejected at run time.
 |-----------|--------|-------------------|-------|
 | `command` | string | *(auto-detected)* | Overrides auto-detection when set. |
 
-When `command` is unset, Patchr detects it from repo markers, in order:
+When `command` is unset, Wright detects it from repo markers, in order:
 
 | Marker                                             | Command        |
 |-----------------------------------------------------|----------------|
@@ -121,10 +121,10 @@ If none match, verification fails with "no test command detected".
 
 | Field             | Type   | Default | Notes |
 |-------------------|--------|---------|-------|
-| `system_append`   | string | —       | Appended after Patchr's default behavior guidance. Mutually exclusive with `system_override`. |
-| `system_override` | string | —       | Fully replaces Patchr's default behavior guidance. Mutually exclusive with `system_append`. |
+| `system_append`   | string | —       | Appended after Wright's default behavior guidance. Mutually exclusive with `system_override`. |
+| `system_override` | string | —       | Fully replaces Wright's default behavior guidance. Mutually exclusive with `system_append`. |
 
-Regardless of this setting, Patchr's *operational contract* — no
+Regardless of this setting, Wright's *operational contract* — no
 self-commit/push, tool/path rules, verify-retry behavior — is a separate
 block that is always enforced and cannot be touched by either field.
 
@@ -143,7 +143,7 @@ the Docker daemon (image pulls), and git push/clone.
 
 ## Validation summary
 
-`patchr validate` runs all of the following and reports every failure at
+`wright validate` runs all of the following and reports every failure at
 once (not just the first):
 
 - `version` must be `1`.

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/farzan-kh/patchr/internal/retry"
+	"github.com/farzan-kh/wright/internal/retry"
 )
 
 func TestRetryConfigToRetryConfig(t *testing.T) {

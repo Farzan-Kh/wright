@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/farzan-kh/patchr/internal/agent/llm"
+	"github.com/farzan-kh/wright/internal/agent/llm"
 )
 
 func TestCreateMessageAPIKeyAuthHeaders(t *testing.T) {

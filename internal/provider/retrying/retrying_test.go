@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/farzan-kh/patchr/internal/provider"
-	"github.com/farzan-kh/patchr/internal/retry"
+	"github.com/farzan-kh/wright/internal/provider"
+	"github.com/farzan-kh/wright/internal/retry"
 )
 
 // spy embeds provider.Provider (left nil) so it only needs to implement the

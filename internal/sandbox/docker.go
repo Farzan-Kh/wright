@@ -14,7 +14,7 @@ import (
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
 
-	"github.com/farzan-kh/patchr/internal/retry"
+	"github.com/farzan-kh/wright/internal/retry"
 )
 
 // Docker orchestrates task containers through the Docker Engine API.

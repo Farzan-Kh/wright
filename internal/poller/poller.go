@@ -4,7 +4,7 @@ package poller
 import (
 	"context"
 
-	"github.com/farzan-kh/patchr/internal/provider"
+	"github.com/farzan-kh/wright/internal/provider"
 )
 
 // Poller performs a single provider poll for one repo.

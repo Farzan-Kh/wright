@@ -20,7 +20,7 @@ repos:
       exponent: 1.5
   - provider: gitlab
     repo: acme/group/subgroup/service
-    trigger_label: patchr
+    trigger_label: wright
     budget:
       max_turns: 20
     llm:

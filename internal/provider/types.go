@@ -6,7 +6,7 @@ import "time"
 // ("pull request", "issue number"). The GitLab adapter maps its own concepts
 // onto these types — a merge request's IID becomes a PullRequest.Number, a
 // note becomes a comment, and so on. Keeping one vocabulary lets the rest of
-// Patchr stay provider-agnostic.
+// Wright stay provider-agnostic.
 
 // Repo identifies a repository or project. FullPath is a single string
 // ("owner/name" on GitHub, or a full project path like "group/subgroup/name"

@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/farzan-kh/patchr/internal/sandbox"
+	"github.com/farzan-kh/wright/internal/sandbox"
 )
 
 // ErrNoCommand indicates no test command could be detected.

@@ -6,8 +6,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/farzan-kh/patchr/internal/provider"
-	"github.com/farzan-kh/patchr/internal/retry"
+	"github.com/farzan-kh/wright/internal/provider"
+	"github.com/farzan-kh/wright/internal/retry"
 )
 
 // Provider wraps an inner provider.Provider, retrying each method call per

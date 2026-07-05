@@ -7,7 +7,7 @@ import (
 
 	gl "gitlab.com/gitlab-org/api/client-go"
 
-	"github.com/farzan-kh/patchr/internal/provider"
+	"github.com/farzan-kh/wright/internal/provider"
 )
 
 // DefaultBranch returns the project's default branch name.

@@ -12,8 +12,8 @@ import (
 
 	gl "gitlab.com/gitlab-org/api/client-go"
 
-	"github.com/farzan-kh/patchr/internal/provider"
-	"github.com/farzan-kh/patchr/internal/provider/providertest"
+	"github.com/farzan-kh/wright/internal/provider"
+	"github.com/farzan-kh/wright/internal/provider/providertest"
 )
 
 var testRepo = provider.Repo{FullPath: "acme/widgets"}
@@ -120,21 +120,21 @@ func TestListLabeledIssues(t *testing.T) {
 	})
 
 	c := newTestClient(t, h)
-	issues, err := c.ListLabeledIssues(context.Background(), testRepo, "patchr")
+	issues, err := c.ListLabeledIssues(context.Background(), testRepo, "wright")
 	if err != nil {
 		t.Fatalf("ListLabeledIssues: %v", err)
 	}
 	if gotState != "opened" {
 		t.Errorf("state param = %q, want opened", gotState)
 	}
-	if gotLabels != "patchr" {
-		t.Errorf("labels param = %q, want patchr", gotLabels)
+	if gotLabels != "wright" {
+		t.Errorf("labels param = %q, want wright", gotLabels)
 	}
 	if len(issues) != 2 {
 		t.Fatalf("got %d issues, want 2 (both pages): %+v", len(issues), issues)
 	}
 	providertest.AssertIssuesPopulated(t, issues)
-	providertest.AssertEveryIssueHasLabel(t, issues, "patchr")
+	providertest.AssertEveryIssueHasLabel(t, issues, "wright")
 	if issues[0].Number != 201 || issues[0].Author != "dave" {
 		t.Errorf("issue[0] = %+v", issues[0])
 	}
@@ -177,7 +177,7 @@ func TestCommentOnPullRequest(t *testing.T) {
 }
 
 func TestIssueLabelRoundTrip(t *testing.T) {
-	labels := []string{"patchr", "reliability"}
+	labels := []string{"wright", "reliability"}
 	contains := func(needle string) bool {
 		for _, l := range labels {
 			if l == needle {
@@ -232,7 +232,7 @@ func TestIssueLabelRoundTrip(t *testing.T) {
 	})
 
 	c := newTestClient(t, h)
-	providertest.AssertIssueLabelRoundTrip(t, c, testRepo, 201, "patchr", "needs-human")
+	providertest.AssertIssueLabelRoundTrip(t, c, testRepo, 201, "wright", "needs-human")
 }
 
 func TestRemoveIssueLabelAlreadyAbsent(t *testing.T) {
@@ -273,14 +273,14 @@ func TestCreateBranch(t *testing.T) {
 				gotBranch, _ = body["branch"].(string)
 				gotRef, _ = body["ref"].(string)
 				w.WriteHeader(http.StatusCreated)
-				mustWrite(w, []byte(`{"name":"patchr/x"}`))
+				mustWrite(w, []byte(`{"name":"wright/x"}`))
 			},
 		})
 		c := newTestClient(t, h)
-		if err := c.CreateBranch(context.Background(), testRepo, "patchr/x", "main"); err != nil {
+		if err := c.CreateBranch(context.Background(), testRepo, "wright/x", "main"); err != nil {
 			t.Fatalf("CreateBranch: %v", err)
 		}
-		if gotBranch != "patchr/x" || gotRef != "main" {
+		if gotBranch != "wright/x" || gotRef != "main" {
 			t.Errorf("branch=%q ref=%q", gotBranch, gotRef)
 		}
 	})
@@ -293,7 +293,7 @@ func TestCreateBranch(t *testing.T) {
 			},
 		})
 		c := newTestClient(t, h)
-		err := c.CreateBranch(context.Background(), testRepo, "patchr/x", "main")
+		err := c.CreateBranch(context.Background(), testRepo, "wright/x", "main")
 		providertest.AssertErrorIs(t, err, provider.ErrAlreadyExists)
 	})
 }
@@ -301,13 +301,13 @@ func TestCreateBranch(t *testing.T) {
 func TestDeleteBranch(t *testing.T) {
 	called := false
 	h := router(t, map[string]http.HandlerFunc{
-		"DELETE " + base + "/repository/branches/patchr%2Fx": func(w http.ResponseWriter, r *http.Request) {
+		"DELETE " + base + "/repository/branches/wright%2Fx": func(w http.ResponseWriter, r *http.Request) {
 			called = true
 			w.WriteHeader(http.StatusNoContent)
 		},
 	})
 	c := newTestClient(t, h)
-	if err := c.DeleteBranch(context.Background(), testRepo, "patchr/x"); err != nil {
+	if err := c.DeleteBranch(context.Background(), testRepo, "wright/x"); err != nil {
 		t.Fatalf("DeleteBranch: %v", err)
 	}
 	if !called {
@@ -329,15 +329,15 @@ func TestPushCommits(t *testing.T) {
 		},
 	})
 	c := newTestClient(t, h)
-	head, err := c.PushCommits(context.Background(), testRepo, "patchr/x", providertest.StandardCommits())
+	head, err := c.PushCommits(context.Background(), testRepo, "wright/x", providertest.StandardCommits())
 	if err != nil {
 		t.Fatalf("PushCommits: %v", err)
 	}
 	if head != "newsha" {
 		t.Errorf("head = %q, want newsha", head)
 	}
-	if commitBody["branch"] != "patchr/x" {
-		t.Errorf("branch = %v, want patchr/x", commitBody["branch"])
+	if commitBody["branch"] != "wright/x" {
+		t.Errorf("branch = %v, want wright/x", commitBody["branch"])
 	}
 
 	actions, _ := commitBody["actions"].([]any)
@@ -350,7 +350,7 @@ func TestPushCommits(t *testing.T) {
 		byPath[m["file_path"].(string)] = m
 	}
 	// added.md existed -> "update" with content.
-	if a := byPath["docs/added.md"]; a["action"] != "update" || a["content"] != "hello from patchr\n" {
+	if a := byPath["docs/added.md"]; a["action"] != "update" || a["content"] != "hello from wright\n" {
 		t.Errorf("added action = %v", a)
 	}
 	// obsolete.txt -> "delete".
@@ -372,7 +372,7 @@ func TestPushCommitsCreatesMissingFile(t *testing.T) {
 		},
 	})
 	c := newTestClient(t, h)
-	if _, err := c.PushCommits(context.Background(), testRepo, "patchr/x", providertest.StandardCommits()); err != nil {
+	if _, err := c.PushCommits(context.Background(), testRepo, "wright/x", providertest.StandardCommits()); err != nil {
 		t.Fatalf("PushCommits: %v", err)
 	}
 	actions, _ := commitBody["actions"].([]any)
@@ -390,15 +390,15 @@ func TestFindOpenPullRequestByHead(t *testing.T) {
 		"GET " + base + "/merge_requests": func(w http.ResponseWriter, r *http.Request) {
 			gotSource = r.URL.Query().Get("source_branch")
 			gotState = r.URL.Query().Get("state")
-			mustWrite(w, []byte(`[{"iid":9,"web_url":"https://gitlab.com/acme/widgets/-/merge_requests/9","source_branch":"patchr/issue-201","target_branch":"main"}]`))
+			mustWrite(w, []byte(`[{"iid":9,"web_url":"https://gitlab.com/acme/widgets/-/merge_requests/9","source_branch":"wright/issue-201","target_branch":"main"}]`))
 		},
 	})
 	c := newTestClient(t, h)
-	pr, err := c.FindOpenPullRequestByHead(context.Background(), testRepo, "patchr/issue-201")
+	pr, err := c.FindOpenPullRequestByHead(context.Background(), testRepo, "wright/issue-201")
 	if err != nil {
 		t.Fatalf("FindOpenPullRequestByHead: %v", err)
 	}
-	if gotSource != "patchr/issue-201" || gotState != "opened" {
+	if gotSource != "wright/issue-201" || gotState != "opened" {
 		t.Fatalf("query source/state = %q/%q", gotSource, gotState)
 	}
 	if pr == nil || pr.Number != 9 {
@@ -413,7 +413,7 @@ func TestFindOpenPullRequestByHeadNone(t *testing.T) {
 		},
 	})
 	c := newTestClient(t, h)
-	pr, err := c.FindOpenPullRequestByHead(context.Background(), testRepo, "patchr/issue-201")
+	pr, err := c.FindOpenPullRequestByHead(context.Background(), testRepo, "wright/issue-201")
 	if err != nil {
 		t.Fatalf("FindOpenPullRequestByHead: %v", err)
 	}
@@ -428,14 +428,14 @@ func TestOpenPullRequest(t *testing.T) {
 		"POST " + base + "/merge_requests": func(w http.ResponseWriter, r *http.Request) {
 			body = decodeBody(t, r)
 			w.WriteHeader(http.StatusCreated)
-			mustWrite(w, []byte(`{"iid":7,"web_url":"https://gitlab.com/acme/widgets/-/merge_requests/7","source_branch":"patchr/x","target_branch":"main"}`))
+			mustWrite(w, []byte(`{"iid":7,"web_url":"https://gitlab.com/acme/widgets/-/merge_requests/7","source_branch":"wright/x","target_branch":"main"}`))
 		},
 	})
 	c := newTestClient(t, h)
 	pr, err := c.OpenPullRequest(context.Background(), testRepo, provider.PullRequestSpec{
 		Title:      "Fix the thing",
 		Body:       "Closes #201",
-		HeadBranch: "patchr/x",
+		HeadBranch: "wright/x",
 		BaseBranch: "main",
 		Draft:      true,
 	})
@@ -445,10 +445,10 @@ func TestOpenPullRequest(t *testing.T) {
 	if title, _ := body["title"].(string); title != "Draft: Fix the thing" {
 		t.Errorf("title = %q, want draft-prefixed", title)
 	}
-	if body["source_branch"] != "patchr/x" || body["target_branch"] != "main" {
+	if body["source_branch"] != "wright/x" || body["target_branch"] != "main" {
 		t.Errorf("branches in body = %v", body)
 	}
-	if pr.Number != 7 || pr.HeadBranch != "patchr/x" || pr.BaseBranch != "main" {
+	if pr.Number != 7 || pr.HeadBranch != "wright/x" || pr.BaseBranch != "main" {
 		t.Errorf("pr = %+v", pr)
 	}
 }

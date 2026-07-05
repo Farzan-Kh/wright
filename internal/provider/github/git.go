@@ -7,7 +7,7 @@ import (
 
 	gh "github.com/google/go-github/v78/github"
 
-	"github.com/farzan-kh/patchr/internal/provider"
+	"github.com/farzan-kh/wright/internal/provider"
 )
 
 // blobMode is the git file mode for a normal (non-executable) file.

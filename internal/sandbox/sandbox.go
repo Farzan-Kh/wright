@@ -12,8 +12,8 @@ const (
 	DefaultImage    = "alpine/git:2.47.2"
 	DefaultWorkdir  = "/workspace"
 	DefaultRepoDir  = "repo"
-	DefaultGitUser  = "patchr"
-	DefaultGitEmail = "patchr@local"
+	DefaultGitUser  = "wright"
+	DefaultGitEmail = "wright@local"
 )
 
 // replaceUnique replaces the single occurrence of oldText in current with

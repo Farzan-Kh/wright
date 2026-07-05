@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/farzan-kh/patchr/internal/agent/llm"
+	"github.com/farzan-kh/wright/internal/agent/llm"
 )
 
 // writeChatResponse writes a minimal non-tool-use completion response.

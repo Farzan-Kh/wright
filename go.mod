@@ -1,4 +1,4 @@
-module github.com/farzan-kh/patchr
+module github.com/farzan-kh/wright
 
 go 1.26
 

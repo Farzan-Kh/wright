@@ -14,8 +14,8 @@ import (
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 
-	"github.com/farzan-kh/patchr/internal/agent/llm"
-	"github.com/farzan-kh/patchr/internal/cost"
+	"github.com/farzan-kh/wright/internal/agent/llm"
+	"github.com/farzan-kh/wright/internal/cost"
 )
 
 const oauthBetaHeader = "oauth-2025-04-20"

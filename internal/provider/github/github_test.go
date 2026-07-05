@@ -12,8 +12,8 @@ import (
 
 	gh "github.com/google/go-github/v78/github"
 
-	"github.com/farzan-kh/patchr/internal/provider"
-	"github.com/farzan-kh/patchr/internal/provider/providertest"
+	"github.com/farzan-kh/wright/internal/provider"
+	"github.com/farzan-kh/wright/internal/provider/providertest"
 )
 
 var testRepo = provider.Repo{FullPath: "acme/widgets"}
@@ -79,7 +79,7 @@ func TestListLabeledIssues(t *testing.T) {
 	})
 
 	c := newTestClient(t, mux)
-	issues, err := c.ListLabeledIssues(context.Background(), testRepo, "patchr")
+	issues, err := c.ListLabeledIssues(context.Background(), testRepo, "wright")
 	if err != nil {
 		t.Fatalf("ListLabeledIssues: %v", err)
 	}
@@ -87,8 +87,8 @@ func TestListLabeledIssues(t *testing.T) {
 	if gotState != "open" {
 		t.Errorf("state param = %q, want open", gotState)
 	}
-	if gotLabels != "patchr" {
-		t.Errorf("labels param = %q, want patchr", gotLabels)
+	if gotLabels != "wright" {
+		t.Errorf("labels param = %q, want wright", gotLabels)
 	}
 	// page1 has issue 101 + PR 102 (filtered); page2 has issue 103.
 	if len(issues) != 2 {
@@ -96,12 +96,12 @@ func TestListLabeledIssues(t *testing.T) {
 	}
 	providertest.AssertIssuesPopulated(t, issues)
 	providertest.AssertNoIssueNumbers(t, issues, 102)
-	providertest.AssertEveryIssueHasLabel(t, issues, "patchr")
+	providertest.AssertEveryIssueHasLabel(t, issues, "wright")
 
 	if issues[0].Number != 101 || issues[0].Author != "alice" {
 		t.Errorf("issue[0] = %+v", issues[0])
 	}
-	if issues[0].Labels[0] != "patchr" || issues[0].Labels[1] != "bug" {
+	if issues[0].Labels[0] != "wright" || issues[0].Labels[1] != "bug" {
 		t.Errorf("issue[0] labels = %v", issues[0].Labels)
 	}
 }
@@ -142,7 +142,7 @@ func TestCommentOnPullRequest(t *testing.T) {
 }
 
 func TestIssueLabelRoundTrip(t *testing.T) {
-	labels := []string{"patchr", "bug"}
+	labels := []string{"wright", "bug"}
 	contains := func(needle string) bool {
 		for _, l := range labels {
 			if l == needle {
@@ -193,7 +193,7 @@ func TestIssueLabelRoundTrip(t *testing.T) {
 	})
 
 	c := newTestClient(t, m)
-	providertest.AssertIssueLabelRoundTrip(t, c, testRepo, 101, "patchr", "needs-human")
+	providertest.AssertIssueLabelRoundTrip(t, c, testRepo, 101, "wright", "needs-human")
 }
 
 func TestRemoveIssueLabelAlreadyAbsent(t *testing.T) {
@@ -235,13 +235,13 @@ func TestCreateBranch(t *testing.T) {
 			gotRef, _ = body["ref"].(string)
 			gotSHA, _ = body["sha"].(string)
 			w.WriteHeader(http.StatusCreated)
-			mustWrite(w, []byte(`{"ref":"refs/heads/patchr/x"}`))
+			mustWrite(w, []byte(`{"ref":"refs/heads/wright/x"}`))
 		})
 		c := newTestClient(t, mux)
-		if err := c.CreateBranch(context.Background(), testRepo, "patchr/x", "main"); err != nil {
+		if err := c.CreateBranch(context.Background(), testRepo, "wright/x", "main"); err != nil {
 			t.Fatalf("CreateBranch: %v", err)
 		}
-		if gotRef != "refs/heads/patchr/x" {
+		if gotRef != "refs/heads/wright/x" {
 			t.Errorf("ref = %q", gotRef)
 		}
 		if gotSHA != "basesha" {
@@ -259,7 +259,7 @@ func TestCreateBranch(t *testing.T) {
 			mustWrite(w, []byte(`{"message":"Reference already exists"}`))
 		})
 		c := newTestClient(t, mux)
-		err := c.CreateBranch(context.Background(), testRepo, "patchr/x", "main")
+		err := c.CreateBranch(context.Background(), testRepo, "wright/x", "main")
 		providertest.AssertErrorIs(t, err, provider.ErrAlreadyExists)
 	})
 }
@@ -267,12 +267,12 @@ func TestCreateBranch(t *testing.T) {
 func TestDeleteBranch(t *testing.T) {
 	var called bool
 	mux := http.NewServeMux()
-	mux.HandleFunc("DELETE /repos/acme/widgets/git/refs/heads/patchr/x", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("DELETE /repos/acme/widgets/git/refs/heads/wright/x", func(w http.ResponseWriter, r *http.Request) {
 		called = true
 		w.WriteHeader(http.StatusNoContent)
 	})
 	c := newTestClient(t, mux)
-	if err := c.DeleteBranch(context.Background(), testRepo, "patchr/x"); err != nil {
+	if err := c.DeleteBranch(context.Background(), testRepo, "wright/x"); err != nil {
 		t.Fatalf("DeleteBranch: %v", err)
 	}
 	if !called {
@@ -286,7 +286,7 @@ func TestPushCommits(t *testing.T) {
 	blobCount := 0
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /repos/acme/widgets/git/ref/heads/patchr/x", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /repos/acme/widgets/git/ref/heads/wright/x", func(w http.ResponseWriter, r *http.Request) {
 		mustWrite(w, []byte(`{"object":{"sha":"parentsha"}}`))
 	})
 	mux.HandleFunc("GET /repos/acme/widgets/git/commits/parentsha", func(w http.ResponseWriter, r *http.Request) {
@@ -307,13 +307,13 @@ func TestPushCommits(t *testing.T) {
 		w.WriteHeader(http.StatusCreated)
 		mustWrite(w, []byte(`{"sha":"newcommit"}`))
 	})
-	mux.HandleFunc("PATCH /repos/acme/widgets/git/refs/heads/patchr/x", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("PATCH /repos/acme/widgets/git/refs/heads/wright/x", func(w http.ResponseWriter, r *http.Request) {
 		updateBody = decodeBody(t, r)
 		mustWrite(w, []byte(`{"object":{"sha":"newcommit"}}`))
 	})
 
 	c := newTestClient(t, mux)
-	head, err := c.PushCommits(context.Background(), testRepo, "patchr/x", providertest.StandardCommits())
+	head, err := c.PushCommits(context.Background(), testRepo, "wright/x", providertest.StandardCommits())
 	if err != nil {
 		t.Fatalf("PushCommits: %v", err)
 	}
@@ -370,14 +370,14 @@ func TestFindOpenPullRequestByHead(t *testing.T) {
 	mux.HandleFunc("GET /repos/acme/widgets/pulls", func(w http.ResponseWriter, r *http.Request) {
 		gotHead = r.URL.Query().Get("head")
 		gotState = r.URL.Query().Get("state")
-		mustWrite(w, []byte(`[{"number":17,"html_url":"https://github.com/acme/widgets/pull/17","head":{"ref":"patchr/issue-101"},"base":{"ref":"main"}}]`))
+		mustWrite(w, []byte(`[{"number":17,"html_url":"https://github.com/acme/widgets/pull/17","head":{"ref":"wright/issue-101"},"base":{"ref":"main"}}]`))
 	})
 	c := newTestClient(t, mux)
-	pr, err := c.FindOpenPullRequestByHead(context.Background(), testRepo, "patchr/issue-101")
+	pr, err := c.FindOpenPullRequestByHead(context.Background(), testRepo, "wright/issue-101")
 	if err != nil {
 		t.Fatalf("FindOpenPullRequestByHead: %v", err)
 	}
-	if gotHead != "acme:patchr/issue-101" || gotState != "open" {
+	if gotHead != "acme:wright/issue-101" || gotState != "open" {
 		t.Fatalf("query head/state = %q/%q", gotHead, gotState)
 	}
 	if pr == nil || pr.Number != 17 {
@@ -391,7 +391,7 @@ func TestFindOpenPullRequestByHeadNone(t *testing.T) {
 		mustWrite(w, []byte(`[]`))
 	})
 	c := newTestClient(t, mux)
-	pr, err := c.FindOpenPullRequestByHead(context.Background(), testRepo, "patchr/issue-101")
+	pr, err := c.FindOpenPullRequestByHead(context.Background(), testRepo, "wright/issue-101")
 	if err != nil {
 		t.Fatalf("FindOpenPullRequestByHead: %v", err)
 	}
@@ -406,23 +406,23 @@ func TestOpenPullRequest(t *testing.T) {
 	mux.HandleFunc("POST /repos/acme/widgets/pulls", func(w http.ResponseWriter, r *http.Request) {
 		body = decodeBody(t, r)
 		w.WriteHeader(http.StatusCreated)
-		mustWrite(w, []byte(`{"number":7,"html_url":"https://github.com/acme/widgets/pull/7","head":{"ref":"patchr/x"},"base":{"ref":"main"}}`))
+		mustWrite(w, []byte(`{"number":7,"html_url":"https://github.com/acme/widgets/pull/7","head":{"ref":"wright/x"},"base":{"ref":"main"}}`))
 	})
 	c := newTestClient(t, mux)
 	pr, err := c.OpenPullRequest(context.Background(), testRepo, provider.PullRequestSpec{
 		Title:      "Fix the thing",
 		Body:       "Resolves #101",
-		HeadBranch: "patchr/x",
+		HeadBranch: "wright/x",
 		BaseBranch: "main",
 		Draft:      true,
 	})
 	if err != nil {
 		t.Fatalf("OpenPullRequest: %v", err)
 	}
-	if body["draft"] != true || body["head"] != "patchr/x" || body["base"] != "main" {
+	if body["draft"] != true || body["head"] != "wright/x" || body["base"] != "main" {
 		t.Errorf("request body = %v", body)
 	}
-	if pr.Number != 7 || pr.HeadBranch != "patchr/x" || pr.BaseBranch != "main" {
+	if pr.Number != 7 || pr.HeadBranch != "wright/x" || pr.BaseBranch != "main" {
 		t.Errorf("pr = %+v", pr)
 	}
 }
@@ -436,9 +436,9 @@ func TestMergePullRequest(t *testing.T) {
 		mustWrite(w, []byte(`{"merged":true,"sha":"mergedsha"}`))
 	})
 	mux.HandleFunc("GET /repos/acme/widgets/pulls/7", func(w http.ResponseWriter, r *http.Request) {
-		mustWrite(w, []byte(`{"number":7,"head":{"ref":"patchr/x"}}`))
+		mustWrite(w, []byte(`{"number":7,"head":{"ref":"wright/x"}}`))
 	})
-	mux.HandleFunc("DELETE /repos/acme/widgets/git/refs/heads/patchr/x", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("DELETE /repos/acme/widgets/git/refs/heads/wright/x", func(w http.ResponseWriter, r *http.Request) {
 		deleteCalled = true
 		w.WriteHeader(http.StatusNoContent)
 	})

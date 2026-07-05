@@ -9,14 +9,14 @@ import (
 	"path"
 	"strings"
 
-	"github.com/farzan-kh/patchr/internal/provider"
-	"github.com/farzan-kh/patchr/internal/retry"
-	"github.com/farzan-kh/patchr/internal/sandbox"
+	"github.com/farzan-kh/wright/internal/provider"
+	"github.com/farzan-kh/wright/internal/retry"
+	"github.com/farzan-kh/wright/internal/sandbox"
 )
 
 // BranchName returns the deterministic per-issue branch.
 func BranchName(issueNumber int) string {
-	return fmt.Sprintf("patchr/issue-%d", issueNumber)
+	return fmt.Sprintf("wright/issue-%d", issueNumber)
 }
 
 // InjectCredentialIntoRemoteURL injects basic-auth credentials into an HTTPS

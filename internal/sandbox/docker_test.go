@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/farzan-kh/patchr/internal/retry"
+	"github.com/farzan-kh/wright/internal/retry"
 )
 
 func TestDockerTaskToolExec(t *testing.T) {
@@ -43,14 +43,14 @@ func TestDockerTaskToolExec(t *testing.T) {
 		t.Fatalf("content = %q", content)
 	}
 
-	if err := task.ReplaceText(ctx, "a/b.txt", "world", "patchr"); err != nil {
+	if err := task.ReplaceText(ctx, "a/b.txt", "world", "wright"); err != nil {
 		t.Fatalf("ReplaceText: %v", err)
 	}
 	content, err = task.ReadFile(ctx, "a/b.txt")
 	if err != nil {
 		t.Fatalf("ReadFile after ReplaceText: %v", err)
 	}
-	if content != "hello\npatchr\n" {
+	if content != "hello\nwright\n" {
 		t.Fatalf("content after replace = %q", content)
 	}
 

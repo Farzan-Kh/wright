@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/farzan-kh/patchr/internal/sandbox"
+	"github.com/farzan-kh/wright/internal/sandbox"
 )
 
 func TestDetectCommand(t *testing.T) {

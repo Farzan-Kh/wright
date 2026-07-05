@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/farzan-kh/patchr/internal/agent/llm"
-	"github.com/farzan-kh/patchr/internal/cost"
-	"github.com/farzan-kh/patchr/internal/provider"
+	"github.com/farzan-kh/wright/internal/agent/llm"
+	"github.com/farzan-kh/wright/internal/cost"
+	"github.com/farzan-kh/wright/internal/provider"
 )
 
 func TestCheckReady(t *testing.T) {

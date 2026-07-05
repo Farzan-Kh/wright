@@ -8,7 +8,7 @@ import (
 
 	gl "gitlab.com/gitlab-org/api/client-go"
 
-	"github.com/farzan-kh/patchr/internal/provider"
+	"github.com/farzan-kh/wright/internal/provider"
 )
 
 // ListLabeledIssues returns open issues carrying label. GitLab's issues API

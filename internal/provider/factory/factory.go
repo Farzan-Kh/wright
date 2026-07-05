@@ -7,11 +7,11 @@ package factory
 import (
 	"fmt"
 
-	"github.com/farzan-kh/patchr/internal/config"
-	"github.com/farzan-kh/patchr/internal/provider"
-	"github.com/farzan-kh/patchr/internal/provider/github"
-	"github.com/farzan-kh/patchr/internal/provider/gitlab"
-	"github.com/farzan-kh/patchr/internal/provider/retrying"
+	"github.com/farzan-kh/wright/internal/config"
+	"github.com/farzan-kh/wright/internal/provider"
+	"github.com/farzan-kh/wright/internal/provider/github"
+	"github.com/farzan-kh/wright/internal/provider/gitlab"
+	"github.com/farzan-kh/wright/internal/provider/retrying"
 )
 
 // New constructs the Provider for a repo entry, authenticated with token. It

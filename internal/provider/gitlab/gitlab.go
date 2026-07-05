@@ -19,7 +19,7 @@ import (
 
 	gl "gitlab.com/gitlab-org/api/client-go"
 
-	"github.com/farzan-kh/patchr/internal/provider"
+	"github.com/farzan-kh/wright/internal/provider"
 )
 
 // providerName is the identifier returned by Name and matched by the factory.

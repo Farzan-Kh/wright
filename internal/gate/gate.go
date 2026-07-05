@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/farzan-kh/patchr/internal/agent/llm"
-	"github.com/farzan-kh/patchr/internal/cost"
-	"github.com/farzan-kh/patchr/internal/provider"
+	"github.com/farzan-kh/wright/internal/agent/llm"
+	"github.com/farzan-kh/wright/internal/cost"
+	"github.com/farzan-kh/wright/internal/provider"
 )
 
 // Verdict is the gate result.

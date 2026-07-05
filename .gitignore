@@ -1,9 +1,9 @@
 # Compiled binary (from `make build` / `go build`)
-/patchr
+/wright
 /dist/
 
 # Local runtime config — may reference real repos; never commit
-patchr.yaml
+wright.yaml
 
 # Local secrets
 .env

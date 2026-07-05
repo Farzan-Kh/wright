@@ -2,7 +2,7 @@ version: 1
 repos:
   - provider: github
     repo: acme/widgets
-    triger_label: patchr
+    triger_label: wright
     llm:
       provider: claude
       model: claude-sonnet-4-5

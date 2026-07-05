@@ -8,14 +8,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/farzan-kh/patchr/internal/provider"
-	"github.com/farzan-kh/patchr/internal/retry"
-	"github.com/farzan-kh/patchr/internal/sandbox"
+	"github.com/farzan-kh/wright/internal/provider"
+	"github.com/farzan-kh/wright/internal/retry"
+	"github.com/farzan-kh/wright/internal/sandbox"
 )
 
 func TestBranchName(t *testing.T) {
-	if got := BranchName(42); got != "patchr/issue-42" {
-		t.Fatalf("BranchName = %q, want patchr/issue-42", got)
+	if got := BranchName(42); got != "wright/issue-42" {
+		t.Fatalf("BranchName = %q, want wright/issue-42", got)
 	}
 }
 
@@ -86,12 +86,12 @@ func TestCommitAndPushRetriesTransientPushFailure(t *testing.T) {
 		Repo:  provider.Repo{FullPath: "acme/widgets"},
 		Retry: retry.Config{Strategy: retry.Fixed, MaxAttempts: 5, BaseDelay: time.Millisecond},
 	}
-	branch, diff, err := ops.CommitAndPush(context.Background(), 7, "https://github.com/acme/widgets.git", "tok", "patchr: fix")
+	branch, diff, err := ops.CommitAndPush(context.Background(), 7, "https://github.com/acme/widgets.git", "tok", "wright: fix")
 	if err != nil {
 		t.Fatalf("CommitAndPush: %v", err)
 	}
-	if branch != "patchr/issue-7" {
-		t.Errorf("branch = %q, want patchr/issue-7", branch)
+	if branch != "wright/issue-7" {
+		t.Errorf("branch = %q, want wright/issue-7", branch)
 	}
 	if diff == "" {
 		t.Errorf("diffSummary is empty")
@@ -112,7 +112,7 @@ func TestCommitAndPushExhaustsRetriesOnPersistentFailure(t *testing.T) {
 		Repo:  provider.Repo{FullPath: "acme/widgets"},
 		Retry: retry.Config{Strategy: retry.Fixed, MaxAttempts: 3, BaseDelay: time.Millisecond},
 	}
-	_, _, err := ops.CommitAndPush(context.Background(), 7, "https://github.com/acme/widgets.git", "tok", "patchr: fix")
+	_, _, err := ops.CommitAndPush(context.Background(), 7, "https://github.com/acme/widgets.git", "tok", "wright: fix")
 	if err == nil {
 		t.Fatal("expected error")
 	}

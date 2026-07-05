@@ -8,9 +8,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/farzan-kh/patchr/internal/config"
-	"github.com/farzan-kh/patchr/internal/provider"
-	"github.com/farzan-kh/patchr/internal/provider/factory"
+	"github.com/farzan-kh/wright/internal/config"
+	"github.com/farzan-kh/wright/internal/provider"
+	"github.com/farzan-kh/wright/internal/provider/factory"
 )
 
 func newOnceCmd() *cobra.Command {

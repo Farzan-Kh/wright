@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/farzan-kh/patchr/internal/config"
+	"github.com/farzan-kh/wright/internal/config"
 )
 
 func newValidateCmd() *cobra.Command {

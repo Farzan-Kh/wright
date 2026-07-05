@@ -5,8 +5,8 @@ package retrying
 import (
 	"context"
 
-	"github.com/farzan-kh/patchr/internal/agent/llm"
-	"github.com/farzan-kh/patchr/internal/retry"
+	"github.com/farzan-kh/wright/internal/agent/llm"
+	"github.com/farzan-kh/wright/internal/retry"
 )
 
 // Provider wraps an inner llm.LLMProvider, retrying CreateMessage per Config

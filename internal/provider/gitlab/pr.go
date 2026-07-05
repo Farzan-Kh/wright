@@ -6,7 +6,7 @@ import (
 
 	gl "gitlab.com/gitlab-org/api/client-go"
 
-	"github.com/farzan-kh/patchr/internal/provider"
+	"github.com/farzan-kh/wright/internal/provider"
 )
 
 // FindOpenPullRequestByHead returns an open merge request for headBranch, or nil.

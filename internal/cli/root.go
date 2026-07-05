@@ -1,4 +1,4 @@
-// Package cli implements the patchr command-line interface using cobra.
+// Package cli implements the wright command-line interface using cobra.
 package cli
 
 import (
@@ -10,7 +10,7 @@ import (
 )
 
 // defaultConfigPath is used when --config is not given.
-const defaultConfigPath = "patchr.yaml"
+const defaultConfigPath = "wright.yaml"
 
 // Execute builds and runs the root command, returning a process exit code.
 // Errors are printed by cobra; this only maps success/failure to 0/1.
@@ -26,15 +26,15 @@ func Execute() int {
 
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
-		Use:   "patchr",
-		Short: "Patchr resolves labeled issues with an LLM agent and opens PRs.",
-		Long: "Patchr is a self-hosted daemon that resolves labeled, well-scoped GitHub and\n" +
+		Use:   "wright",
+		Short: "Wright resolves labeled issues with an LLM agent and opens PRs.",
+		Long: "Wright is a self-hosted daemon that resolves labeled, well-scoped GitHub and\n" +
 			"GitLab issues with an LLM agent and opens pull requests. This is the Phase 0\n" +
 			"foundation: config, the provider abstraction, and run-once commands.",
 		SilenceUsage:  true,
 		SilenceErrors: false,
 	}
-	root.PersistentFlags().String("config", defaultConfigPath, "path to the patchr config file")
+	root.PersistentFlags().String("config", defaultConfigPath, "path to the wright config file")
 
 	root.AddCommand(newVersionCmd())
 	root.AddCommand(newValidateCmd())

@@ -1,4 +1,4 @@
-// Package version exposes the build version of the patchr binary.
+// Package version exposes the build version of the wright binary.
 package version
 
 // Version is the build version. It defaults to "dev" and is overridden at

@@ -9,7 +9,7 @@ import (
 // consulted for this repo's token, most specific first:
 //
 //  1. the explicit TokenEnv, if set;
-//  2. the Patchr-specific, provider-scoped var (PATCHR_GITHUB_TOKEN / PATCHR_GITLAB_TOKEN);
+//  2. the Wright-specific, provider-scoped var (WRIGHT_GITHUB_TOKEN / WRIGHT_GITLAB_TOKEN);
 //  3. the conventional provider var (GITHUB_TOKEN / GITLAB_TOKEN).
 //
 // Credentials themselves never live in the config file — only the names of the
@@ -21,9 +21,9 @@ func (rc *RepoConfig) TokenEnvCandidates() []string {
 	}
 	switch rc.Provider {
 	case ProviderGitHub:
-		cands = append(cands, "PATCHR_GITHUB_TOKEN", "GITHUB_TOKEN")
+		cands = append(cands, "WRIGHT_GITHUB_TOKEN", "GITHUB_TOKEN")
 	case ProviderGitLab:
-		cands = append(cands, "PATCHR_GITLAB_TOKEN", "GITLAB_TOKEN")
+		cands = append(cands, "WRIGHT_GITLAB_TOKEN", "GITLAB_TOKEN")
 	}
 	return cands
 }
@@ -51,10 +51,10 @@ func (lc *LLMConfig) APIKeyEnvCandidates() []string {
 	}
 	switch lc.Provider {
 	case LLMProviderOpenRouter:
-		cands = append(cands, "PATCHR_OPENROUTER_API_KEY", "OPENROUTER_API_KEY")
+		cands = append(cands, "WRIGHT_OPENROUTER_API_KEY", "OPENROUTER_API_KEY")
 	default:
 		// "claude" and any unrecognised provider fall back to Anthropic vars.
-		cands = append(cands, "PATCHR_ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY")
+		cands = append(cands, "WRIGHT_ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY")
 	}
 	return cands
 }

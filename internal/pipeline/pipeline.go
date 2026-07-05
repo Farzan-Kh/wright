@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/farzan-kh/patchr/internal/cost"
-	"github.com/farzan-kh/patchr/internal/gate"
-	"github.com/farzan-kh/patchr/internal/poller"
-	"github.com/farzan-kh/patchr/internal/provider"
+	"github.com/farzan-kh/wright/internal/cost"
+	"github.com/farzan-kh/wright/internal/gate"
+	"github.com/farzan-kh/wright/internal/poller"
+	"github.com/farzan-kh/wright/internal/provider"
 )
 
 // ReadyHandler executes the expensive path for a gate-approved issue.
@@ -77,7 +77,7 @@ func (p *Pipeline) RunOnce(ctx context.Context) ([]IssueReport, error) {
 			if rep.Detail == "" {
 				rep.Detail = "issue is not implementation-ready"
 			}
-			_ = p.Provider.CommentOnIssue(ctx, p.Repo, iss.Number, "Patchr couldn't start yet because this issue is missing details:\n\n"+rep.Detail)
+			_ = p.Provider.CommentOnIssue(ctx, p.Repo, iss.Number, "Wright couldn't start yet because this issue is missing details:\n\n"+rep.Detail)
 			_ = p.Provider.RemoveIssueLabel(ctx, p.Repo, iss.Number, p.TriggerLabel)
 			rep.Cost = total.Summary()
 			reports = append(reports, rep)
@@ -105,7 +105,7 @@ func (p *Pipeline) RunOnce(ctx context.Context) ([]IssueReport, error) {
 			rep.Status = "needs-human"
 			rep.Detail = err.Error()
 			_ = p.Provider.CommentOnIssue(ctx, p.Repo, iss.Number,
-				fmt.Sprintf("Patchr stopped after bounded attempts.\n\nError: %v\n\nTurns: %d\nInput tokens: %d\nOutput tokens: %d", err, rep.Cost.Turns, rep.Cost.Usage.InputTokens, rep.Cost.Usage.OutputTokens))
+				fmt.Sprintf("Wright stopped after bounded attempts.\n\nError: %v\n\nTurns: %d\nInput tokens: %d\nOutput tokens: %d", err, rep.Cost.Turns, rep.Cost.Usage.InputTokens, rep.Cost.Usage.OutputTokens))
 			_ = p.Provider.RemoveIssueLabel(ctx, p.Repo, iss.Number, p.TriggerLabel)
 			if strings.TrimSpace(p.NeedsHumanLabel) != "" {
 				_ = p.Provider.AddIssueLabel(ctx, p.Repo, iss.Number, p.NeedsHumanLabel)

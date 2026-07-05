@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/farzan-kh/patchr/internal/agent/llm"
-	"github.com/farzan-kh/patchr/internal/retry"
+	"github.com/farzan-kh/wright/internal/agent/llm"
+	"github.com/farzan-kh/wright/internal/retry"
 )
 
 func testConfig() retry.Config {

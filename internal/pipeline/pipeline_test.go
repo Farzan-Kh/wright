@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/farzan-kh/patchr/internal/agent/llm"
-	"github.com/farzan-kh/patchr/internal/cost"
-	"github.com/farzan-kh/patchr/internal/gate"
-	"github.com/farzan-kh/patchr/internal/poller"
-	"github.com/farzan-kh/patchr/internal/provider"
+	"github.com/farzan-kh/wright/internal/agent/llm"
+	"github.com/farzan-kh/wright/internal/cost"
+	"github.com/farzan-kh/wright/internal/gate"
+	"github.com/farzan-kh/wright/internal/poller"
+	"github.com/farzan-kh/wright/internal/provider"
 )
 
 type fakeProvider struct {
@@ -75,9 +75,9 @@ func TestRunOnceNeedsInfoIncludesGateCost(t *testing.T) {
 	pl := &Pipeline{
 		Provider:        fp,
 		Repo:            provider.Repo{FullPath: "acme/widgets"},
-		TriggerLabel:    "patchr",
+		TriggerLabel:    "wright",
 		NeedsHumanLabel: "needs-human",
-		Poller:          &poller.Poller{Provider: fp, Repo: provider.Repo{FullPath: "acme/widgets"}, Label: "patchr"},
+		Poller:          &poller.Poller{Provider: fp, Repo: provider.Repo{FullPath: "acme/widgets"}, Label: "wright"},
 		Gate:            &gate.Gate{LLM: gLLM, Model: "claude-haiku-4-5", MaxTokens: 256},
 	}
 
@@ -98,8 +98,8 @@ func TestRunOnceNeedsInfoIncludesGateCost(t *testing.T) {
 	if len(fp.comments) != 1 {
 		t.Fatalf("comments = %d, want 1", len(fp.comments))
 	}
-	if len(fp.removedLabels) != 1 || fp.removedLabels[0] != "101:patchr" {
-		t.Fatalf("removedLabels = %v, want [101:patchr]", fp.removedLabels)
+	if len(fp.removedLabels) != 1 || fp.removedLabels[0] != "101:wright" {
+		t.Fatalf("removedLabels = %v, want [101:wright]", fp.removedLabels)
 	}
 }
 
@@ -113,8 +113,8 @@ func TestRunOnceCompletedMergesGateAndExecutionCost(t *testing.T) {
 	pl := &Pipeline{
 		Provider:     fp,
 		Repo:         provider.Repo{FullPath: "acme/widgets"},
-		TriggerLabel: "patchr",
-		Poller:       &poller.Poller{Provider: fp, Repo: provider.Repo{FullPath: "acme/widgets"}, Label: "patchr"},
+		TriggerLabel: "wright",
+		Poller:       &poller.Poller{Provider: fp, Repo: provider.Repo{FullPath: "acme/widgets"}, Label: "wright"},
 		Gate:         &gate.Gate{LLM: gLLM, Model: "claude-haiku-4-5", MaxTokens: 256},
 		OnReady: func(_ context.Context, _ provider.Issue) (cost.Summary, error) {
 			return cost.Summary{
@@ -150,9 +150,9 @@ func TestRunOnceNeedsHumanAddsLabel(t *testing.T) {
 	pl := &Pipeline{
 		Provider:        fp,
 		Repo:            provider.Repo{FullPath: "acme/widgets"},
-		TriggerLabel:    "patchr",
+		TriggerLabel:    "wright",
 		NeedsHumanLabel: "needs-human",
-		Poller:          &poller.Poller{Provider: fp, Repo: provider.Repo{FullPath: "acme/widgets"}, Label: "patchr"},
+		Poller:          &poller.Poller{Provider: fp, Repo: provider.Repo{FullPath: "acme/widgets"}, Label: "wright"},
 		Gate:            &gate.Gate{LLM: gLLM, Model: "claude-haiku-4-5", MaxTokens: 256},
 		OnReady: func(_ context.Context, _ provider.Issue) (cost.Summary, error) {
 			return cost.Summary{Turns: 2, Usage: cost.Usage{InputTokens: 100}}, errors.New("verify failed")
@@ -170,7 +170,7 @@ func TestRunOnceNeedsHumanAddsLabel(t *testing.T) {
 	if r.Cost.Turns != 3 {
 		t.Fatalf("turns = %d, want 3", r.Cost.Turns)
 	}
-	if len(fp.removedLabels) != 1 || fp.removedLabels[0] != "42:patchr" {
+	if len(fp.removedLabels) != 1 || fp.removedLabels[0] != "42:wright" {
 		t.Fatalf("removedLabels = %v", fp.removedLabels)
 	}
 	if len(fp.addedLabels) != 1 || fp.addedLabels[0] != "42:needs-human" {

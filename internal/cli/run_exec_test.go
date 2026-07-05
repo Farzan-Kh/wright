@@ -6,12 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/farzan-kh/patchr/internal/agent/llm"
-	"github.com/farzan-kh/patchr/internal/config"
-	"github.com/farzan-kh/patchr/internal/cost"
-	"github.com/farzan-kh/patchr/internal/pipeline"
-	"github.com/farzan-kh/patchr/internal/provider"
-	"github.com/farzan-kh/patchr/internal/sandbox"
+	"github.com/farzan-kh/wright/internal/agent/llm"
+	"github.com/farzan-kh/wright/internal/config"
+	"github.com/farzan-kh/wright/internal/cost"
+	"github.com/farzan-kh/wright/internal/pipeline"
+	"github.com/farzan-kh/wright/internal/provider"
+	"github.com/farzan-kh/wright/internal/sandbox"
 )
 
 func TestBuildLLMRejectsOAuthInPhase1(t *testing.T) {
@@ -284,7 +284,7 @@ func TestIssueExecutorHandleRetriesAfterVerifyFailure(t *testing.T) {
 	task.Files = map[string]string{"go.mod": "module acme/widgets"}
 	task.BashFn = func(command string) (string, error) {
 		switch {
-		case command == "git ls-remote --heads origin 'patchr/issue-11'":
+		case command == "git ls-remote --heads origin 'wright/issue-11'":
 			return "", nil // branch does not exist remotely
 		case command == "go test ./...":
 			verifyCalls++
@@ -292,7 +292,7 @@ func TestIssueExecutorHandleRetriesAfterVerifyFailure(t *testing.T) {
 				return "FAIL\tacme/widgets\t0.01s", errors.New("tests failed")
 			}
 			return "ok\tacme/widgets\t0.02s", nil
-		case command == "git checkout -b patchr/issue-11":
+		case command == "git checkout -b wright/issue-11":
 			return "", nil
 		case command == "git add -A":
 			return "", nil
@@ -339,7 +339,7 @@ func TestIssueExecutorHandleRetriesAfterVerifyFailure(t *testing.T) {
 	if fp.openPRCount != 1 {
 		t.Fatalf("openPRCount = %d, want 1", fp.openPRCount)
 	}
-	if fp.openPRLastSpec.HeadBranch != "patchr/issue-11" || fp.openPRLastSpec.BaseBranch != "main" {
+	if fp.openPRLastSpec.HeadBranch != "wright/issue-11" || fp.openPRLastSpec.BaseBranch != "main" {
 		t.Fatalf("unexpected PR spec: %+v", fp.openPRLastSpec)
 	}
 	if orch.starts != 1 {

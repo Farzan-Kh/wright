@@ -1,6 +1,6 @@
-# Patchr example configuration.
+# Wright example configuration.
 #
-# Copy to patchr.yaml and edit. Credentials are NEVER stored here — Patchr reads
+# Copy to wright.yaml and edit. Credentials are NEVER stored here — Wright reads
 # tokens from environment variables (see token_env / the README's env-var table).
 
 version: 1
@@ -13,10 +13,10 @@ repos:
 
     # token_env: MY_TOKEN_VAR   # env var NAME to read the token from.
     # Defaults, in order:
-    #   PATCHR_GITHUB_TOKEN -> GITHUB_TOKEN   (github)
-    #   PATCHR_GITLAB_TOKEN -> GITLAB_TOKEN   (gitlab)
+    #   WRIGHT_GITHUB_TOKEN -> GITHUB_TOKEN   (github)
+    #   WRIGHT_GITLAB_TOKEN -> GITLAB_TOKEN   (gitlab)
 
-    trigger_label: patchr # issue label Patchr acts on; default "patchr"
+    trigger_label: wright # issue label Wright acts on; default "wright"
 
     # base_branch: main         # default: the repo's default branch, via the API
 
@@ -34,19 +34,19 @@ repos:
       effort: high
 
       # OAuth/subscription mode is accepted by the schema but NOT activated in
-      # Phase 1 (deferred to Phase 2); `patchr run` rejects auth: oauth. Example:
+      # Phase 1 (deferred to Phase 2); `wright run` rejects auth: oauth. Example:
       # auth: oauth
       # oauth:
-      #   access_token_env: PATCHR_CLAUDE_OAUTH_TOKEN
-      #   access_token_expiry_env: PATCHR_CLAUDE_OAUTH_EXPIRES_AT  # RFC3339 timestamp
-      #   refresh_token_env: PATCHR_CLAUDE_OAUTH_REFRESH_TOKEN     # optional
-      #   client_id_env: PATCHR_CLAUDE_OAUTH_CLIENT_ID             # optional (required if refresh_token_env set)
+      #   access_token_env: WRIGHT_CLAUDE_OAUTH_TOKEN
+      #   access_token_expiry_env: WRIGHT_CLAUDE_OAUTH_EXPIRES_AT  # RFC3339 timestamp
+      #   refresh_token_env: WRIGHT_CLAUDE_OAUTH_REFRESH_TOKEN     # optional
+      #   client_id_env: WRIGHT_CLAUDE_OAUTH_CLIENT_ID             # optional (required if refresh_token_env set)
       #   token_url: https://auth.example.com/oauth/token          # optional (required if refresh_token_env set)
 
       # OpenRouter example (access 200+ models via a single API key):
       # provider: openrouter
       # auth: api_key  # only api_key is supported
-      # api_key_env: OPENROUTER_API_KEY  # or PATCHR_OPENROUTER_API_KEY
+      # api_key_env: OPENROUTER_API_KEY  # or WRIGHT_OPENROUTER_API_KEY
       # agent_model: anthropic/claude-sonnet-4-5
       # gate_model: openai/gpt-4o-mini
       # effort: high
@@ -68,16 +68,16 @@ repos:
       # command: make test
 
     # prompt: customizes the agent's system prompt. Both fields are optional
-    # and mutually exclusive (patchr validate rejects setting both).
+    # and mutually exclusive (wright validate rejects setting both).
     # prompt:
-    #   # system_append adds repo-specific instructions after Patchr's default
+    #   # system_append adds repo-specific instructions after Wright's default
     #   # behavior guidance (identity, scope discipline, guardrails). Safe for
     #   # most use cases.
     #   system_append: "Always update CHANGELOG.md when you change public behavior."
     #
-    #   # system_override fully REPLACES Patchr's default behavior guidance.
+    #   # system_override fully REPLACES Wright's default behavior guidance.
     #   # ADVANCED — only use this if you know exactly what you're discarding:
-    #   # Patchr's operational contract (don't self-commit/push, tool path
+    #   # Wright's operational contract (don't self-commit/push, tool path
     #   # rules, verify-retry behavior) is a separate block that is ALWAYS
     #   # enforced regardless of this setting, but everything else — the
     #   # "smallest correct change" philosophy and the default guardrails

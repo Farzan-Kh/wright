@@ -1,10 +1,10 @@
-// Package llm defines Patchr's model-agnostic LLM contract.
+// Package llm defines Wright's model-agnostic LLM contract.
 package llm
 
 import (
 	"context"
 
-	"github.com/farzan-kh/patchr/internal/cost"
+	"github.com/farzan-kh/wright/internal/cost"
 )
 
 // LLMProvider is the model provider abstraction used by the agent and gate.

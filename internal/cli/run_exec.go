@@ -7,15 +7,15 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/farzan-kh/patchr/internal/agent"
-	"github.com/farzan-kh/patchr/internal/agent/llm"
-	"github.com/farzan-kh/patchr/internal/config"
-	"github.com/farzan-kh/patchr/internal/cost"
-	"github.com/farzan-kh/patchr/internal/gitops"
-	"github.com/farzan-kh/patchr/internal/pipeline"
-	"github.com/farzan-kh/patchr/internal/provider"
-	"github.com/farzan-kh/patchr/internal/sandbox"
-	"github.com/farzan-kh/patchr/internal/verifier"
+	"github.com/farzan-kh/wright/internal/agent"
+	"github.com/farzan-kh/wright/internal/agent/llm"
+	"github.com/farzan-kh/wright/internal/config"
+	"github.com/farzan-kh/wright/internal/cost"
+	"github.com/farzan-kh/wright/internal/gitops"
+	"github.com/farzan-kh/wright/internal/pipeline"
+	"github.com/farzan-kh/wright/internal/provider"
+	"github.com/farzan-kh/wright/internal/sandbox"
+	"github.com/farzan-kh/wright/internal/verifier"
 )
 
 type issueExecutor struct {
@@ -37,7 +37,7 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 	}
 	if existingPR != nil {
 		reason := fmt.Sprintf("idempotency: open PR already exists for %s (PR #%d %s)", branchName, existingPR.Number, existingPR.URL)
-		_ = e.Provider.CommentOnIssue(ctx, e.Repo, issue.Number, "Patchr skipped this run because an open PR already exists for this issue branch:\n\n"+existingPR.URL)
+		_ = e.Provider.CommentOnIssue(ctx, e.Repo, issue.Number, "Wright skipped this run because an open PR already exists for this issue branch:\n\n"+existingPR.URL)
 		return zeroCost, pipeline.NewSkipError(reason)
 	}
 
@@ -79,7 +79,7 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 	}
 	if branchExists {
 		reason := fmt.Sprintf("idempotency: branch %s already exists", branchName)
-		_ = e.Provider.CommentOnIssue(ctx, e.Repo, issue.Number, "Patchr skipped this run because branch `"+branchName+"` already exists. If you want a retry, close/delete existing artifacts and re-apply the label.")
+		_ = e.Provider.CommentOnIssue(ctx, e.Repo, issue.Number, "Wright skipped this run because branch `"+branchName+"` already exists. If you want a retry, close/delete existing artifacts and re-apply the label.")
 		return zeroCost, pipeline.NewSkipError(reason)
 	}
 
@@ -149,7 +149,7 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 		RemoteUser: gitRemoteUsername(e.RepoConfig.Provider),
 		Retry:      e.RepoConfig.Retry.ToRetryConfig(),
 	}
-	commitTitle := fmt.Sprintf("patchr: resolve issue #%d", issue.Number)
+	commitTitle := fmt.Sprintf("wright: resolve issue #%d", issue.Number)
 	branch, diffSummary, err := ops.CommitAndPush(ctx, issue.Number, remoteURL, e.ProviderToken, commitTitle)
 	if err != nil {
 		return totalCost, err
@@ -163,7 +163,7 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 	}
 
 	_ = e.Provider.CommentOnIssue(ctx, e.Repo, issue.Number,
-		fmt.Sprintf("Patchr opened PR #%d: %s", pr.Number, pr.URL))
+		fmt.Sprintf("Wright opened PR #%d: %s", pr.Number, pr.URL))
 
 	return totalCost, nil
 }
@@ -171,7 +171,7 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 // defaultAgentBehaviorPrompt is the default identity/behavior guidance for the
 // coding agent. It is replaced wholesale by RepoConfig.Prompt.SystemOverride,
 // or extended by RepoConfig.Prompt.SystemAppend, when configured.
-const defaultAgentBehaviorPrompt = "You are Patchr, an autonomous software-maintenance agent. " +
+const defaultAgentBehaviorPrompt = "You are Wright, an autonomous software-maintenance agent. " +
 	"Resolve the target issue with the smallest correct code change; do not expand scope beyond what " +
 	"the issue asks for.\n\n" +
 	"Guardrails:\n" +

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/farzan-kh/patchr/internal/version"
+	"github.com/farzan-kh/wright/internal/version"
 )
 
 // run executes the root command with args, capturing combined output.
@@ -32,7 +32,7 @@ repos:
 
 func writeConfig(t *testing.T, body string) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "patchr.yaml")
+	path := filepath.Join(t.TempDir(), "wright.yaml")
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestValidateCommand(t *testing.T) {
 	path := writeConfig(t, sampleConfig)
 
 	t.Run("ok_with_token", func(t *testing.T) {
-		t.Setenv("PATCHR_GITHUB_TOKEN", "dummy")
+		t.Setenv("WRIGHT_GITHUB_TOKEN", "dummy")
 		t.Setenv("ANTHROPIC_API_KEY", "dummy-llm")
 		out, err := run("validate", "--config", path)
 		if err != nil {
@@ -65,10 +65,10 @@ func TestValidateCommand(t *testing.T) {
 	})
 
 	t.Run("missing_token", func(t *testing.T) {
-		t.Setenv("PATCHR_GITHUB_TOKEN", "")
+		t.Setenv("WRIGHT_GITHUB_TOKEN", "")
 		t.Setenv("GITHUB_TOKEN", "")
 		t.Setenv("ANTHROPIC_API_KEY", "")
-		t.Setenv("PATCHR_ANTHROPIC_API_KEY", "")
+		t.Setenv("WRIGHT_ANTHROPIC_API_KEY", "")
 		out, err := run("validate", "--config", path)
 		if err == nil {
 			t.Fatalf("validate: expected error for missing token; out: %s", out)
@@ -96,7 +96,7 @@ repos:
       oauth:
         access_token_env: ANTHROPIC_OAUTH_ACCESS_TOKEN
 `)
-		t.Setenv("PATCHR_GITHUB_TOKEN", "dummy")
+		t.Setenv("WRIGHT_GITHUB_TOKEN", "dummy")
 		t.Setenv("ANTHROPIC_OAUTH_ACCESS_TOKEN", "dummy-oauth-token")
 		out, err := run("validate", "--config", oauthConfig)
 		if err == nil {
