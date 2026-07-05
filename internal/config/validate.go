@@ -95,6 +95,10 @@ func (rc *RepoConfig) validate(idx int) []error {
 		errs = append(errs, p("llm.auth oauth is not supported for openrouter; use api_key"))
 	}
 
+	if strings.TrimSpace(rc.Prompt.SystemAppend) != "" && strings.TrimSpace(rc.Prompt.SystemOverride) != "" {
+		errs = append(errs, p("prompt.system_append and prompt.system_override are mutually exclusive"))
+	}
+
 	if rc.LLM.Auth == "oauth" {
 		if strings.TrimSpace(rc.LLM.OAuth.AccessTokenEnv) == "" {
 			errs = append(errs, p("llm.oauth.access_token_env is required in oauth mode"))

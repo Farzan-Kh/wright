@@ -85,6 +85,20 @@ func TestLoadValid(t *testing.T) {
 		}
 	})
 
+	t.Run("prompt_append_only", func(t *testing.T) {
+		c, err := Load(filepath.Join("testdata", "prompt_append_only.yaml"))
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		rc := c.Repos[0]
+		if rc.Prompt.SystemAppend != "Always update CHANGELOG.md." {
+			t.Fatalf("prompt.system_append = %q", rc.Prompt.SystemAppend)
+		}
+		if rc.Prompt.SystemOverride != "" {
+			t.Fatalf("prompt.system_override = %q, want empty", rc.Prompt.SystemOverride)
+		}
+	})
+
 	t.Run("llm_openrouter_mode", func(t *testing.T) {
 		c, err := Load(filepath.Join("testdata", "valid_llm_openrouter.yaml"))
 		if err != nil {
@@ -123,6 +137,7 @@ func TestLoadInvalid(t *testing.T) {
 		{"oauth_missing_access_token_env.yaml", "llm.oauth.access_token_env"},
 		{"duplicate_repos.yaml", "duplicate of repos[0]"},
 		{"openrouter_oauth_invalid.yaml", "oauth is not supported for openrouter"},
+		{"prompt_append_and_override.yaml", "prompt.system_append and prompt.system_override are mutually exclusive"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.file, func(t *testing.T) {

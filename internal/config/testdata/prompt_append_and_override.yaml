@@ -1,0 +1,10 @@
+version: 1
+repos:
+  - provider: github
+    repo: acme/widgets
+    llm:
+      provider: claude
+      model: claude-sonnet-4-5
+    prompt:
+      system_append: "Always update CHANGELOG.md."
+      system_override: "You are a specialized widget-repo agent."

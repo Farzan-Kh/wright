@@ -99,6 +99,71 @@ func TestBuildPRBody(t *testing.T) {
 	}
 }
 
+func TestBuildAgentSystemPromptDefaultIncludesDynamicFacts(t *testing.T) {
+	rc := &config.RepoConfig{
+		Sandbox: config.SandboxConfig{Image: "alpine/git:2.47.2", Workdir: "/workspace"},
+	}
+	blocks := buildAgentSystemPrompt(provider.Issue{Number: 5, Title: "Fix bug", Body: "Steps"}, rc, "main", "go test ./...")
+
+	var all strings.Builder
+	for _, b := range blocks {
+		all.WriteString(b.Text)
+		all.WriteString("\n")
+	}
+	text := all.String()
+
+	for _, frag := range []string{
+		defaultAgentBehaviorPrompt,
+		"the harness stages, commits, pushes",
+		"alpine/git:2.47.2",
+		"/workspace/repo",
+		"Base branch: main",
+		"Verify command: go test ./...",
+		"#5 Fix bug",
+	} {
+		if !strings.Contains(text, frag) {
+			t.Fatalf("system prompt missing %q\n\n%s", frag, text)
+		}
+	}
+
+	last := blocks[len(blocks)-1]
+	if !last.CachePrompt {
+		t.Fatal("last block (issue text) should have CachePrompt=true")
+	}
+}
+
+func TestBuildAgentSystemPromptSystemAppend(t *testing.T) {
+	rc := &config.RepoConfig{Prompt: config.PromptConfig{SystemAppend: "Always update CHANGELOG.md."}}
+	blocks := buildAgentSystemPrompt(provider.Issue{Number: 1, Title: "T"}, rc, "main", "make test")
+
+	if !strings.Contains(blocks[0].Text, defaultAgentBehaviorPrompt) {
+		t.Fatalf("behavior block should still contain the default text, got %q", blocks[0].Text)
+	}
+	if !strings.Contains(blocks[0].Text, "Always update CHANGELOG.md.") {
+		t.Fatalf("behavior block should contain the appended text, got %q", blocks[0].Text)
+	}
+}
+
+func TestBuildAgentSystemPromptSystemOverride(t *testing.T) {
+	rc := &config.RepoConfig{Prompt: config.PromptConfig{SystemOverride: "You are a specialized widget-repo agent."}}
+	blocks := buildAgentSystemPrompt(provider.Issue{Number: 1, Title: "T"}, rc, "main", "make test")
+
+	if blocks[0].Text != "You are a specialized widget-repo agent." {
+		t.Fatalf("behavior block = %q, want the override verbatim", blocks[0].Text)
+	}
+	if strings.Contains(blocks[0].Text, defaultAgentBehaviorPrompt) {
+		t.Fatal("override should fully replace the default behavior text")
+	}
+
+	var all strings.Builder
+	for _, b := range blocks {
+		all.WriteString(b.Text)
+	}
+	if !strings.Contains(all.String(), "the harness stages, commits, pushes") {
+		t.Fatal("operational contract must still be present even when behavior text is overridden")
+	}
+}
+
 type fakeExecProvider struct {
 	findPR            *provider.PullRequest
 	defaultBranch     string

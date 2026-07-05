@@ -64,6 +64,8 @@ type RepoConfig struct {
 	Sandbox SandboxConfig `yaml:"sandbox"`
 	// Verify optionally overrides auto-detected test command.
 	Verify VerifyConfig `yaml:"verify"`
+	// Prompt customizes the agent's system prompt. See PromptConfig.
+	Prompt PromptConfig `yaml:"prompt"`
 }
 
 // BudgetConfig bounds the number of agent turns spent resolving a single
@@ -109,6 +111,22 @@ type SandboxConfig struct {
 // VerifyConfig configures verification.
 type VerifyConfig struct {
 	Command string `yaml:"command"`
+}
+
+// PromptConfig customizes the agent's system prompt behavior text.
+// SystemAppend and SystemOverride are mutually exclusive.
+type PromptConfig struct {
+	// SystemAppend adds repo-specific instructions after Patchr's default
+	// behavior guidance (e.g. "always update CHANGELOG.md"). Safe default
+	// choice for most repos.
+	SystemAppend string `yaml:"system_append"`
+	// SystemOverride fully replaces Patchr's default behavior guidance
+	// (identity, scope discipline, guardrails). ADVANCED: Patchr's
+	// operational contract (no self-commit/push, tool/path rules) is a
+	// separate, always-enforced block regardless of this setting, but
+	// everything else the default guidance provides is discarded. Only use
+	// this if you know exactly what you're replacing.
+	SystemOverride string `yaml:"system_override"`
 }
 
 // applyDefaults fills in omitted optional fields. It is called by Load before

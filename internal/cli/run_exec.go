@@ -100,7 +100,7 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 		return cost.Summary{}, err
 	}
 
-	systemPrompt := buildAgentSystemPrompt(issue)
+	systemPrompt := buildAgentSystemPrompt(issue, e.RepoConfig, baseBranch, verifyCmd)
 	history := buildAgentHistory(issue)
 	tools := []llm.ToolSpec{
 		{Type: "bash_20250124"},
@@ -162,9 +162,60 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 	return totalCost, nil
 }
 
-func buildAgentSystemPrompt(issue provider.Issue) []llm.SystemBlock {
+// defaultAgentBehaviorPrompt is the default identity/behavior guidance for the
+// coding agent. It is replaced wholesale by RepoConfig.Prompt.SystemOverride,
+// or extended by RepoConfig.Prompt.SystemAppend, when configured.
+const defaultAgentBehaviorPrompt = "You are Patchr, an autonomous software-maintenance agent. " +
+	"Resolve the target issue with the smallest correct code change; do not expand scope beyond what " +
+	"the issue asks for.\n\n" +
+	"Guardrails:\n" +
+	"- Do not modify CI/CD configuration (e.g. .github/workflows, .gitlab-ci.yml) unless the issue " +
+	"explicitly asks for it.\n" +
+	"- Do not edit files unrelated to the issue.\n" +
+	"- Prefer deterministic, non-interactive commands.\n" +
+	"- If the issue is ambiguous or you get stuck, stop and summarize what's blocking you rather than " +
+	"guessing broadly."
+
+// agentOperationalContract states harness mechanics the agent must follow for
+// the run to complete correctly. Unlike the behavior guidance above, this is
+// never overridden or extended by repo config: getting it wrong breaks the
+// harness (e.g. an agent-made commit leaves nothing staged for the harness to
+// commit itself).
+const agentOperationalContract = "Operational contract:\n" +
+	"- Do not run `git commit`, `git push`, or create branches yourself. Leave your changes as " +
+	"uncommitted edits in the working tree; the harness stages, commits, pushes, and opens the PR " +
+	"after you stop.\n" +
+	"- Bash commands run with the repository root as the working directory; you don't need to `cd` " +
+	"into it. The text-editor tool's paths must be relative to the repository root — absolute paths " +
+	"are rejected.\n" +
+	"- After you stop, the harness runs the verify command itself. If it fails you'll receive the " +
+	"output and get a few more attempts, so it's worth running the verify command yourself before " +
+	"stopping.\n" +
+	"- Stop and summarize what changed once the issue is resolved."
+
+func buildAgentSystemPrompt(issue provider.Issue, rc *config.RepoConfig, baseBranch, verifyCmd string) []llm.SystemBlock {
+	behavior := strings.TrimSpace(rc.Prompt.SystemOverride)
+	if behavior == "" {
+		behavior = defaultAgentBehaviorPrompt
+		if extra := strings.TrimSpace(rc.Prompt.SystemAppend); extra != "" {
+			behavior += "\n\n" + extra
+		}
+	}
+
+	environment := fmt.Sprintf(
+		"Environment:\n"+
+			"- Sandbox image: %s\n"+
+			"- Repository root: %s/%s\n"+
+			"- Base branch: %s (your edits build on top of this)\n"+
+			"- Verify command: %s (your change must pass this)\n"+
+			"- Tools: `bash` and a text-editor tool (view/create/str_replace)",
+		rc.Sandbox.Image, rc.Sandbox.Workdir, sandbox.DefaultRepoDir, baseBranch, verifyCmd,
+	)
+
 	return []llm.SystemBlock{
-		{Text: "You are Patchr, an autonomous software-maintenance agent. Make the smallest correct code changes needed for the issue. Use bash and the text editor tool. Prefer deterministic commands and avoid unnecessary scope changes."},
+		{Text: behavior},
+		{Text: agentOperationalContract},
+		{Text: environment},
 		{Text: "Target issue:\n\n#" + fmt.Sprintf("%d", issue.Number) + " " + issue.Title + "\n\n" + issue.Body, CachePrompt: true},
 	}
 }

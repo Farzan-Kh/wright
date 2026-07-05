@@ -57,3 +57,21 @@ repos:
 
     verify:
       # command: make test
+
+    # prompt: customizes the agent's system prompt. Both fields are optional
+    # and mutually exclusive (patchr validate rejects setting both).
+    # prompt:
+    #   # system_append adds repo-specific instructions after Patchr's default
+    #   # behavior guidance (identity, scope discipline, guardrails). Safe for
+    #   # most use cases.
+    #   system_append: "Always update CHANGELOG.md when you change public behavior."
+    #
+    #   # system_override fully REPLACES Patchr's default behavior guidance.
+    #   # ADVANCED — only use this if you know exactly what you're discarding:
+    #   # Patchr's operational contract (don't self-commit/push, tool path
+    #   # rules, verify-retry behavior) is a separate block that is ALWAYS
+    #   # enforced regardless of this setting, but everything else — the
+    #   # "smallest correct change" philosophy and the default guardrails
+    #   # around CI/CD files and scope — is gone unless you restate it here.
+    #   # system_override: |
+    #   #   You are a specialized agent for this repo. ...

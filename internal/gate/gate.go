@@ -32,9 +32,15 @@ func (g *Gate) Check(ctx context.Context, issue provider.Issue) (Verdict, error)
 
 // CheckWithUsage runs issue triage and also returns token usage for cost accounting.
 func (g *Gate) CheckWithUsage(ctx context.Context, issue provider.Issue) (Verdict, cost.Usage, error) {
-	prompt := "Decide if this software issue is implementation-ready. Return JSON only: " +
+	prompt := "You are triaging a software issue before an autonomous coding agent attempts it. " +
+		"Decide whether the issue is implementation-ready: it states a clear, unambiguous problem, " +
+		"states or clearly implies the expected behavior or acceptance criteria, and does not depend " +
+		"on information only a human could supply (e.g. an unspecified design decision, missing " +
+		"credentials, or an open question about which of several approaches to take).\n\n" +
+		"Respond with JSON only, no markdown fences or surrounding prose: " +
 		`{"ready":true|false,"missing":"..."}. ` +
-		"Set missing to empty when ready=true.\n\n" +
+		"When ready is true, missing must be an empty string. When ready is false, missing must be " +
+		"one concise sentence naming exactly what information is missing.\n\n" +
 		"Title: " + issue.Title + "\n\nBody:\n" + issue.Body
 
 	resp, err := g.LLM.CreateMessage(ctx, llm.MessageRequest{

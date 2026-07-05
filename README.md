@@ -48,7 +48,19 @@ repos:
       agent_model: claude-sonnet-5
       gate_model: claude-haiku-4-5
       effort: high
+    # prompt:
+    #   system_append: "Always update CHANGELOG.md when you change public behavior."
+    #   # system_override: ...   # advanced — see patchr.example.yaml
 ```
+
+> **`prompt` customization.** `system_append` adds repo-specific instructions
+> after Patchr's default behavior guidance; `system_override` fully replaces
+> it (mutually exclusive with `system_append`; `patchr validate` rejects
+> setting both). Either way, Patchr's *operational contract* — don't
+> self-commit/push, tool path rules, verify-retry behavior — is a separate,
+> always-enforced block that neither field can touch. Only use
+> `system_override` if you know exactly what default guidance you're
+> discarding.
 
 > **LLM providers.** `claude` is the default and the path Phase 1 is built
 > around (Phase 1 is Claude-only per `docs/PHASE_1_PLAN.md`). `openrouter` is an
