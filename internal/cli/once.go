@@ -5,6 +5,7 @@ import (
 	"io"
 	"text/tabwriter"
 	"time"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 
@@ -111,7 +112,16 @@ func truncate(s string, n int) string {
 		return s
 	}
 	if n <= 1 {
-		return s[:n]
+		return safeCut(s, n)
 	}
-	return s[:n-1] + "…"
+	return safeCut(s, n-1) + "…"
+}
+
+// safeCut returns the first n bytes of s, pulled back to the nearest earlier
+// rune boundary so a multi-byte UTF-8 character is never split in half.
+func safeCut(s string, n int) string {
+	for n > 0 && n < len(s) && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
 }
