@@ -57,8 +57,12 @@ func splitRepo(repo provider.Repo) (owner, name string, err error) {
 }
 
 // classify maps a go-github transport error onto one of provider's sentinel
-// errors, returning the original error unchanged when nothing matches. Callers
-// wrap the result with per-operation context using %w.
+// errors, returning the original error unchanged when nothing matches. The
+// sentinel is wrapped around the original err (rather than replacing it) so
+// errors.Is still matches while the underlying API response text — GitHub's
+// actual message, which is often the only clue to what really went wrong —
+// is preserved for logging instead of being discarded. Callers wrap the
+// result with per-operation context using %w.
 func classify(err error) error {
 	if err == nil {
 		return nil
@@ -66,19 +70,19 @@ func classify(err error) error {
 	var rle *gh.RateLimitError
 	var arle *gh.AbuseRateLimitError
 	if errors.As(err, &rle) || errors.As(err, &arle) {
-		return provider.ErrRateLimited
+		return fmt.Errorf("%w: %w", provider.ErrRateLimited, err)
 	}
 	if code, ok := statusCode(err); ok {
 		switch code {
 		case http.StatusNotFound:
-			return provider.ErrNotFound
+			return fmt.Errorf("%w: %w", provider.ErrNotFound, err)
 		case http.StatusUnauthorized, http.StatusForbidden:
-			return provider.ErrAuth
+			return fmt.Errorf("%w: %w", provider.ErrAuth, err)
 		case http.StatusTooManyRequests:
-			return provider.ErrRateLimited
+			return fmt.Errorf("%w: %w", provider.ErrRateLimited, err)
 		default:
 			if code >= 400 && code < 500 {
-				return provider.ErrInvalidRequest
+				return fmt.Errorf("%w: %w", provider.ErrInvalidRequest, err)
 			}
 		}
 	}
@@ -92,4 +96,22 @@ func statusCode(err error) (int, bool) {
 		return er.Response.StatusCode, true
 	}
 	return 0, false
+}
+
+// isAlreadyExists reports whether err indicates the target already exists.
+// GitHub answers a duplicate pull request with 422 and a validation message
+// rather than a dedicated status, so the message is inspected too.
+func isAlreadyExists(err error) bool {
+	var er *gh.ErrorResponse
+	if errors.As(err, &er) {
+		if strings.Contains(strings.ToLower(er.Message), "already exists") {
+			return true
+		}
+		for _, e := range er.Errors {
+			if strings.Contains(strings.ToLower(e.Message), "already exists") {
+				return true
+			}
+		}
+	}
+	return false
 }

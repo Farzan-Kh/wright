@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"log/slog"
 	"text/tabwriter"
 	"time"
 	"unicode/utf8"
@@ -10,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/farzan-kh/wright/internal/config"
+	"github.com/farzan-kh/wright/internal/logging"
 	"github.com/farzan-kh/wright/internal/provider"
 	"github.com/farzan-kh/wright/internal/provider/factory"
 )
@@ -33,7 +35,7 @@ func newOnceCmd() *cobra.Command {
 				return err
 			}
 
-			p, repo, _, err := buildProvider(rc)
+			p, repo, _, err := buildProvider(rc, logging.FromContext(cmd.Context()))
 			if err != nil {
 				return err
 			}
@@ -59,13 +61,14 @@ func newOnceCmd() *cobra.Command {
 // buildProvider resolves a repo's token and constructs its provider, returning
 // the provider, the domain Repo to address it with, and the resolved token
 // (so callers that also need it, e.g. for git credential injection, don't
-// have to re-resolve it themselves).
-func buildProvider(rc *config.RepoConfig) (provider.Provider, provider.Repo, string, error) {
+// have to re-resolve it themselves). log receives structured logging of every
+// provider call; pass logging.FromContext(cmd.Context()) to honor --verbose.
+func buildProvider(rc *config.RepoConfig, log *slog.Logger) (provider.Provider, provider.Repo, string, error) {
 	token, _, ok := rc.ResolveToken()
 	if !ok {
 		return nil, provider.Repo{}, "", fmt.Errorf("no token for %s: set one of %v", rc.Repo, rc.TokenEnvCandidates())
 	}
-	p, err := factory.New(*rc, token)
+	p, err := factory.New(*rc, token, log)
 	if err != nil {
 		return nil, provider.Repo{}, "", err
 	}

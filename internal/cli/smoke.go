@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/farzan-kh/wright/internal/config"
+	"github.com/farzan-kh/wright/internal/logging"
 	"github.com/farzan-kh/wright/internal/provider"
 )
 
@@ -37,7 +38,7 @@ func newSmokeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			p, repo, _, err := buildProvider(rc)
+			p, repo, _, err := buildProvider(rc, logging.FromContext(cmd.Context()))
 			if err != nil {
 				return err
 			}

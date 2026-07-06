@@ -9,6 +9,7 @@ import (
 	"github.com/farzan-kh/wright/internal/agent/llm"
 	"github.com/farzan-kh/wright/internal/config"
 	"github.com/farzan-kh/wright/internal/cost"
+	"github.com/farzan-kh/wright/internal/logging"
 	"github.com/farzan-kh/wright/internal/pipeline"
 	"github.com/farzan-kh/wright/internal/provider"
 	"github.com/farzan-kh/wright/internal/sandbox"
@@ -18,7 +19,7 @@ func TestBuildLLMRejectsOAuthInPhase1(t *testing.T) {
 	rc := &config.RepoConfig{
 		LLM: config.LLMConfig{Provider: config.LLMProviderClaude, Auth: "oauth"},
 	}
-	_, err := buildLLM(rc)
+	_, err := buildLLM(rc, logging.FromContext(context.Background()))
 	if err == nil {
 		t.Fatal("buildLLM(oauth) = nil error, want a Phase 1 not-supported error")
 	}

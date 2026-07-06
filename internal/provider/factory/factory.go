@@ -6,18 +6,24 @@ package factory
 
 import (
 	"fmt"
+	"log/slog"
 
 	"github.com/farzan-kh/wright/internal/config"
 	"github.com/farzan-kh/wright/internal/provider"
 	"github.com/farzan-kh/wright/internal/provider/github"
 	"github.com/farzan-kh/wright/internal/provider/gitlab"
+	"github.com/farzan-kh/wright/internal/provider/logging"
 	"github.com/farzan-kh/wright/internal/provider/retrying"
 )
 
 // New constructs the Provider for a repo entry, authenticated with token. It
 // switches on rc.Provider; the config layer has already validated that value.
-// The returned Provider retries connection attempts per rc.Retry.
-func New(rc config.RepoConfig, token string) (provider.Provider, error) {
+// The returned Provider logs every call to log (see internal/provider/logging;
+// pass a discarding logger, e.g. from internal/logging, to disable that) and
+// retries connection attempts per rc.Retry. Logging wraps the raw adapter
+// rather than the retry layer, so every retry attempt is logged individually,
+// not just the final one.
+func New(rc config.RepoConfig, token string, log *slog.Logger) (provider.Provider, error) {
 	var (
 		c   provider.Provider
 		err error
@@ -33,5 +39,5 @@ func New(rc config.RepoConfig, token string) (provider.Provider, error) {
 	if err != nil {
 		return nil, err
 	}
-	return retrying.New(c, rc.Retry.ToRetryConfig()), nil
+	return retrying.New(logging.New(c, log), rc.Retry.ToRetryConfig()), nil
 }

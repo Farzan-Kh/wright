@@ -3,16 +3,19 @@ package cli
 import (
 	"fmt"
 	"io"
+	"log/slog"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
 	"github.com/farzan-kh/wright/internal/agent/llm"
 	"github.com/farzan-kh/wright/internal/agent/llm/claude"
+	llmlogging "github.com/farzan-kh/wright/internal/agent/llm/logging"
 	"github.com/farzan-kh/wright/internal/agent/llm/openrouter"
 	"github.com/farzan-kh/wright/internal/agent/llm/retrying"
 	"github.com/farzan-kh/wright/internal/config"
 	"github.com/farzan-kh/wright/internal/gate"
+	"github.com/farzan-kh/wright/internal/logging"
 	"github.com/farzan-kh/wright/internal/pipeline"
 	"github.com/farzan-kh/wright/internal/poller"
 	"github.com/farzan-kh/wright/internal/sandbox"
@@ -35,11 +38,11 @@ func newRunCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			p, repo, providerToken, err := buildProvider(rc)
+			p, repo, providerToken, err := buildProvider(rc, logging.FromContext(cmd.Context()))
 			if err != nil {
 				return err
 			}
-			llmProvider, err := buildLLM(rc)
+			llmProvider, err := buildLLM(rc, logging.FromContext(cmd.Context()))
 			if err != nil {
 				return err
 			}
@@ -80,17 +83,19 @@ func newRunCmd() *cobra.Command {
 	return cmd
 }
 
-// buildLLM constructs the appropriate llm.LLMProvider from the repo's LLM config.
-func buildLLM(rc *config.RepoConfig) (llm.LLMProvider, error) {
+// buildLLM constructs the appropriate llm.LLMProvider from the repo's LLM
+// config. log receives structured logging of every LLM call; pass
+// logging.FromContext(cmd.Context()) to honor --verbose.
+func buildLLM(rc *config.RepoConfig, log *slog.Logger) (llm.LLMProvider, error) {
 	switch rc.LLM.Provider {
 	case config.LLMProviderOpenRouter:
-		return buildOpenRouterLLM(rc)
+		return buildOpenRouterLLM(rc, log)
 	default: // "claude" and any unrecognised value are routed to Claude.
-		return buildClaudeLLM(rc)
+		return buildClaudeLLM(rc, log)
 	}
 }
 
-func buildClaudeLLM(rc *config.RepoConfig) (llm.LLMProvider, error) {
+func buildClaudeLLM(rc *config.RepoConfig, log *slog.Logger) (llm.LLMProvider, error) {
 	if rc.LLM.Provider != config.LLMProviderClaude && rc.LLM.Provider != "" {
 		return nil, fmt.Errorf("unsupported llm provider %q", rc.LLM.Provider)
 	}
@@ -111,11 +116,11 @@ func buildClaudeLLM(rc *config.RepoConfig) (llm.LLMProvider, error) {
 		if err != nil {
 			return nil, err
 		}
-		return retrying.New(c, rc.Retry.ToRetryConfig()), nil
+		return retrying.New(llmlogging.New(c, log, "claude"), rc.Retry.ToRetryConfig()), nil
 	}
 }
 
-func buildOpenRouterLLM(rc *config.RepoConfig) (llm.LLMProvider, error) {
+func buildOpenRouterLLM(rc *config.RepoConfig, log *slog.Logger) (llm.LLMProvider, error) {
 	key, _, ok := rc.LLM.ResolveAPIKey()
 	if !ok {
 		return nil, fmt.Errorf("no openrouter api key: set one of %v", rc.LLM.APIKeyEnvCandidates())
@@ -124,7 +129,7 @@ func buildOpenRouterLLM(rc *config.RepoConfig) (llm.LLMProvider, error) {
 	if err != nil {
 		return nil, err
 	}
-	return retrying.New(c, rc.Retry.ToRetryConfig()), nil
+	return retrying.New(llmlogging.New(c, log, "openrouter"), rc.Retry.ToRetryConfig()), nil
 }
 
 func printRunReports(w io.Writer, rc *config.RepoConfig, reports []pipeline.IssueReport) {

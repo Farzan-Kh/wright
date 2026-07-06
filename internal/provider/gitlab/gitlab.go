@@ -14,6 +14,7 @@ package gitlab
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -55,26 +56,30 @@ func (c *Client) Name() string { return providerName }
 func pid(repo provider.Repo) string { return repo.FullPath }
 
 // classify maps a client-go transport error onto one of provider's sentinel
-// errors, returning the original error unchanged when nothing matches.
+// errors, returning the original error unchanged when nothing matches. The
+// sentinel is wrapped around the original err (rather than replacing it) so
+// errors.Is still matches while the underlying API response text — GitLab's
+// actual message, which is often the only clue to what really went wrong —
+// is preserved for logging instead of being discarded.
 func classify(err error) error {
 	if err == nil {
 		return nil
 	}
 	// client-go returns its own sentinel (not an *ErrorResponse) for 404s.
 	if errors.Is(err, gl.ErrNotFound) {
-		return provider.ErrNotFound
+		return fmt.Errorf("%w: %w", provider.ErrNotFound, err)
 	}
 	if code, ok := statusCode(err); ok {
 		switch code {
 		case http.StatusNotFound:
-			return provider.ErrNotFound
+			return fmt.Errorf("%w: %w", provider.ErrNotFound, err)
 		case http.StatusUnauthorized, http.StatusForbidden:
-			return provider.ErrAuth
+			return fmt.Errorf("%w: %w", provider.ErrAuth, err)
 		case http.StatusTooManyRequests:
-			return provider.ErrRateLimited
+			return fmt.Errorf("%w: %w", provider.ErrRateLimited, err)
 		default:
 			if code >= 400 && code < 500 {
-				return provider.ErrInvalidRequest
+				return fmt.Errorf("%w: %w", provider.ErrInvalidRequest, err)
 			}
 		}
 	}

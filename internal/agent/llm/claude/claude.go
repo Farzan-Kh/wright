@@ -110,7 +110,7 @@ func (p *Provider) CreateMessage(ctx context.Context, req llm.MessageRequest) (l
 	if p.mode == AuthModeOAuth {
 		tok, err := p.oauth.token(ctx)
 		if err != nil {
-			return llm.MessageResponse{}, err
+			return llm.MessageResponse{}, fmt.Errorf("claude: refresh oauth token: %w", err)
 		}
 		callOpts = append(callOpts,
 			option.WithAuthToken(tok),
@@ -120,7 +120,7 @@ func (p *Provider) CreateMessage(ctx context.Context, req llm.MessageRequest) (l
 
 	resp, err := p.client.Messages.New(ctx, params, callOpts...)
 	if err != nil {
-		return llm.MessageResponse{}, err
+		return llm.MessageResponse{}, fmt.Errorf("claude: create message (model %s): %w", req.Model, err)
 	}
 	return fromAnthropicResponse(resp)
 }
