@@ -10,3 +10,6 @@ wright.yaml
 
 # Go test binaries
 *.test
+
+# Log files
+*.log
