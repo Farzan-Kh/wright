@@ -72,6 +72,10 @@ func classify(err error) error {
 			return provider.ErrAuth
 		case http.StatusTooManyRequests:
 			return provider.ErrRateLimited
+		default:
+			if code >= 400 && code < 500 {
+				return provider.ErrInvalidRequest
+			}
 		}
 	}
 	return err

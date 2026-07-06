@@ -22,4 +22,9 @@ var (
 	// ErrRateLimited is returned when the provider reports rate limiting
 	// (HTTP 429, or GitHub's 403 with a rate-limit signal).
 	ErrRateLimited = errors.New("rate limited")
+
+	// ErrInvalidRequest is returned for a permanent client-side rejection (any
+	// 4xx not already covered above, e.g. 400 or 409). Retrying the identical
+	// request will not change the outcome.
+	ErrInvalidRequest = errors.New("invalid request")
 )

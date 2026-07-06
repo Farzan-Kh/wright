@@ -69,7 +69,7 @@ func TestDoesNotRetryNotFound(t *testing.T) {
 }
 
 func TestDoesNotRetryAuthOrAlreadyExists(t *testing.T) {
-	for _, sentinel := range []error{provider.ErrAuth, provider.ErrAlreadyExists} {
+	for _, sentinel := range []error{provider.ErrAuth, provider.ErrAlreadyExists, provider.ErrInvalidRequest} {
 		inner := &spy{failUntil: 10, err: sentinel}
 		p := New(inner, testConfig())
 
