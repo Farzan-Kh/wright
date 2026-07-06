@@ -49,6 +49,16 @@ func (c *Client) OpenPullRequest(ctx context.Context, repo provider.Repo, spec p
 		Draft: gh.Ptr(spec.Draft),
 	})
 	if err != nil {
+		// The caller retries this non-idempotent create on transient errors
+		// (see provider/retrying). If an earlier attempt actually reached
+		// GitHub but the response was lost (timeout, connection reset), the
+		// retry lands here with a duplicate-branch conflict even though the PR
+		// already exists. Recover by returning that PR instead of failing.
+		if isAlreadyExists(err) {
+			if existing, findErr := c.FindOpenPullRequestByHead(ctx, repo, spec.HeadBranch); findErr == nil && existing != nil {
+				return existing, nil
+			}
+		}
 		return nil, fmt.Errorf("github: open pull request %s->%s in %s: %w", spec.HeadBranch, spec.BaseBranch, repo.FullPath, classify(err))
 	}
 	return &provider.PullRequest{

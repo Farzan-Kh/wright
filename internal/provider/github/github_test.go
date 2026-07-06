@@ -443,6 +443,34 @@ func TestOpenPullRequest(t *testing.T) {
 	}
 }
 
+// TestOpenPullRequestRecoversFromDuplicateOnRetry covers the case where a
+// create actually reached GitHub (e.g. an earlier retry attempt) but the
+// caller only sees the conflict on a later attempt: OpenPullRequest should
+// look up and return the already-created PR instead of failing.
+func TestOpenPullRequestRecoversFromDuplicateOnRetry(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /repos/acme/widgets/pulls", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		mustWrite(w, []byte(`{"message":"Validation Failed","errors":[{"resource":"PullRequest","code":"custom","message":"A pull request already exists for acme:wright/x."}]}`))
+	})
+	mux.HandleFunc("GET /repos/acme/widgets/pulls", func(w http.ResponseWriter, r *http.Request) {
+		mustWrite(w, []byte(`[{"number":7,"html_url":"https://github.com/acme/widgets/pull/7","head":{"ref":"wright/x"},"base":{"ref":"main"}}]`))
+	})
+	c := newTestClient(t, mux)
+	pr, err := c.OpenPullRequest(context.Background(), testRepo, provider.PullRequestSpec{
+		Title:      "Fix the thing",
+		Body:       "Resolves #101",
+		HeadBranch: "wright/x",
+		BaseBranch: "main",
+	})
+	if err != nil {
+		t.Fatalf("OpenPullRequest: %v", err)
+	}
+	if pr.Number != 7 {
+		t.Fatalf("pr = %+v, want recovered #7", pr)
+	}
+}
+
 func TestMergePullRequest(t *testing.T) {
 	var mergeBody map[string]any
 	deleteCalled := false

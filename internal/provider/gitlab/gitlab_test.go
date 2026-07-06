@@ -466,6 +466,35 @@ func TestOpenPullRequest(t *testing.T) {
 	}
 }
 
+// TestOpenPullRequestRecoversFromDuplicateOnRetry covers the case where a
+// create actually reached GitLab (e.g. an earlier retry attempt) but the
+// caller only sees the conflict on a later attempt: OpenPullRequest should
+// look up and return the already-created MR instead of failing.
+func TestOpenPullRequestRecoversFromDuplicateOnRetry(t *testing.T) {
+	h := router(t, map[string]http.HandlerFunc{
+		"POST " + base + "/merge_requests": func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusConflict)
+			mustWrite(w, []byte(`{"message":["Another open merge request already exists for this source branch: !7"]}`))
+		},
+		"GET " + base + "/merge_requests": func(w http.ResponseWriter, r *http.Request) {
+			mustWrite(w, []byte(`[{"iid":7,"web_url":"https://gitlab.com/acme/widgets/-/merge_requests/7","source_branch":"wright/x","target_branch":"main"}]`))
+		},
+	})
+	c := newTestClient(t, h)
+	pr, err := c.OpenPullRequest(context.Background(), testRepo, provider.PullRequestSpec{
+		Title:      "Fix the thing",
+		Body:       "Closes #201",
+		HeadBranch: "wright/x",
+		BaseBranch: "main",
+	})
+	if err != nil {
+		t.Fatalf("OpenPullRequest: %v", err)
+	}
+	if pr.Number != 7 {
+		t.Fatalf("pr = %+v, want recovered !7", pr)
+	}
+}
+
 func TestMergePullRequest(t *testing.T) {
 	var body map[string]any
 	h := router(t, map[string]http.HandlerFunc{
