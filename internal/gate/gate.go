@@ -137,8 +137,9 @@ func (g *Gate) resolveReferences(ctx context.Context, issue provider.Issue) stri
 // branch can't be resolved).
 func (g *Gate) checkOnce(ctx context.Context, systemPrompt, userPrompt string) (Verdict, cost.Usage, error) {
 	resp, err := g.LLM.CreateMessage(ctx, llm.MessageRequest{
-		Model:     g.Model,
-		MaxTokens: g.MaxTokens,
+		Model:      g.Model,
+		MaxTokens:  g.MaxTokens,
+		ThinkingOn: true,
 		Messages: []llm.Message{{
 			Role:    "user",
 			Content: []llm.ContentBlock{{Type: "text", Text: systemPrompt + "\n\n" + userPrompt}},
@@ -174,11 +175,12 @@ func (g *Gate) checkWithTools(ctx context.Context, userPrompt string) (Verdict, 
 
 	for turn := 0; turn < maxTurns; turn++ {
 		resp, err := g.LLM.CreateMessage(ctx, llm.MessageRequest{
-			Model:     g.Model,
-			MaxTokens: g.MaxTokens,
-			System:    system,
-			Messages:  history,
-			Tools:     tools,
+			Model:      g.Model,
+			MaxTokens:  g.MaxTokens,
+			ThinkingOn: true,
+			System:     system,
+			Messages:   history,
+			Tools:      tools,
 		})
 		if err != nil {
 			return Verdict{}, acc.Summary().Usage, err
@@ -203,10 +205,11 @@ func (g *Gate) checkWithTools(ctx context.Context, userPrompt string) (Verdict, 
 	history = append(history, llm.Message{Role: "user", Content: []llm.ContentBlock{{Type: "text",
 		Text: "You've used your repo-browsing budget. Give your final verdict now, as JSON only, based on what you've learned so far."}}})
 	resp, err := g.LLM.CreateMessage(ctx, llm.MessageRequest{
-		Model:     g.Model,
-		MaxTokens: g.MaxTokens,
-		System:    system,
-		Messages:  history,
+		Model:      g.Model,
+		MaxTokens:  g.MaxTokens,
+		ThinkingOn: true,
+		System:     system,
+		Messages:   history,
 	})
 	if err != nil {
 		return Verdict{}, acc.Summary().Usage, err
