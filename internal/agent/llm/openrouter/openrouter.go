@@ -111,12 +111,14 @@ func (p *Provider) CreateMessage(ctx context.Context, req llm.MessageRequest) (l
 		return llm.MessageResponse{}, fmt.Errorf("openrouter: decode response: %w", err)
 	}
 
+	// OpenRouter can return an error body with a 2xx status (e.g. upstream
+	// provider or moderation errors), so surface a present error regardless of
+	// the HTTP status code.
+	if chatResp.Error != nil && chatResp.Error.Message != "" {
+		return llm.MessageResponse{}, fmt.Errorf("openrouter: %s", chatResp.Error.Message)
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		errMsg := fmt.Sprintf("HTTP %d", resp.StatusCode)
-		if chatResp.Error != nil && chatResp.Error.Message != "" {
-			errMsg = chatResp.Error.Message
-		}
-		return llm.MessageResponse{}, fmt.Errorf("openrouter: %s", errMsg)
+		return llm.MessageResponse{}, fmt.Errorf("openrouter: HTTP %d", resp.StatusCode)
 	}
 
 	return fromOpenAIResponse(chatResp)
@@ -193,6 +195,44 @@ type usageBlock struct {
 type apiError struct {
 	Message string `json:"message"`
 	Code    int    `json:"code"`
+}
+
+// UnmarshalJSON accepts the "error" field in either of the shapes OpenRouter and
+// its upstream proxies emit: an object ({"message":...,"code":...}) or a bare
+// string ("something went wrong"). The Code field also tolerates being a JSON
+// string rather than a number. Without this, a string error body fails the whole
+// response decode, masking the real upstream message.
+func (e *apiError) UnmarshalJSON(data []byte) error {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 || string(trimmed) == "null" {
+		return nil
+	}
+
+	// String form: {"error":"..."}
+	if trimmed[0] == '"' {
+		var s string
+		if err := json.Unmarshal(trimmed, &s); err != nil {
+			return err
+		}
+		e.Message = s
+		return nil
+	}
+
+	// Object form. Decode into an alias with a flexible code so a string code
+	// (e.g. "invalid_request_error") does not fail the decode.
+	var obj struct {
+		Message string          `json:"message"`
+		Code    json.RawMessage `json:"code"`
+	}
+	if err := json.Unmarshal(trimmed, &obj); err != nil {
+		return err
+	}
+	e.Message = obj.Message
+	if len(obj.Code) > 0 && string(obj.Code) != "null" {
+		// Best-effort: numeric codes populate Code; string codes are ignored.
+		_ = json.Unmarshal(obj.Code, &e.Code)
+	}
+	return nil
 }
 
 // ── tool definitions ─────────────────────────────────────────────────────────

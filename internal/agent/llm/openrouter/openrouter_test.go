@@ -305,6 +305,84 @@ func TestCreateMessageHTTPError(t *testing.T) {
 	}
 }
 
+func TestCreateMessageStringError(t *testing.T) {
+	// OpenRouter / upstream proxies sometimes return the "error" field as a
+	// bare string. This must not fail the whole response decode.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(`{"error":"upstream provider unavailable"}`))
+	}))
+	defer srv.Close()
+
+	p, _ := New(Config{APIKey: "k", BaseURL: srv.URL})
+	_, err := p.CreateMessage(context.Background(), llm.MessageRequest{
+		Model: "openai/gpt-4o",
+		Messages: []llm.Message{{
+			Role:    "user",
+			Content: []llm.ContentBlock{{Type: "text", Text: "hi"}},
+		}},
+	})
+	if err == nil {
+		t.Fatal("expected error for string error body")
+	}
+	if !strings.Contains(err.Error(), "upstream provider unavailable") {
+		t.Fatalf("error = %q, want to contain 'upstream provider unavailable'", err)
+	}
+	if strings.Contains(err.Error(), "decode response") {
+		t.Fatalf("error = %q, should not be a decode failure", err)
+	}
+}
+
+func TestCreateMessageStringErrorCodeInObject(t *testing.T) {
+	// The error object's "code" may be a string rather than a number.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"message":"bad request","code":"invalid_request_error"}}`))
+	}))
+	defer srv.Close()
+
+	p, _ := New(Config{APIKey: "k", BaseURL: srv.URL})
+	_, err := p.CreateMessage(context.Background(), llm.MessageRequest{
+		Model: "openai/gpt-4o",
+		Messages: []llm.Message{{
+			Role:    "user",
+			Content: []llm.ContentBlock{{Type: "text", Text: "hi"}},
+		}},
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "bad request") {
+		t.Fatalf("error = %q, want to contain 'bad request'", err)
+	}
+}
+
+func TestCreateMessageErrorWith200Status(t *testing.T) {
+	// OpenRouter can return an error body with a 200 status.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"error":{"message":"rate limited","code":429}}`))
+	}))
+	defer srv.Close()
+
+	p, _ := New(Config{APIKey: "k", BaseURL: srv.URL})
+	_, err := p.CreateMessage(context.Background(), llm.MessageRequest{
+		Model: "openai/gpt-4o",
+		Messages: []llm.Message{{
+			Role:    "user",
+			Content: []llm.ContentBlock{{Type: "text", Text: "hi"}},
+		}},
+	})
+	if err == nil {
+		t.Fatal("expected error for error body with 200 status")
+	}
+	if !strings.Contains(err.Error(), "rate limited") {
+		t.Fatalf("error = %q, want to contain 'rate limited'", err)
+	}
+}
+
 func TestCreateMessageNoChoices(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
