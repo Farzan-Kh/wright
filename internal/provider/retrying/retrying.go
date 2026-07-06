@@ -35,7 +35,8 @@ func retryable(err error) bool {
 	switch {
 	case errors.Is(err, provider.ErrNotFound),
 		errors.Is(err, provider.ErrAuth),
-		errors.Is(err, provider.ErrAlreadyExists):
+		errors.Is(err, provider.ErrAlreadyExists),
+		errors.Is(err, provider.ErrInvalidRequest):
 		return false
 	default:
 		return true
@@ -47,6 +48,24 @@ func (p *Provider) Name() string { return p.inner.Name() }
 func (p *Provider) ListLabeledIssues(ctx context.Context, repo provider.Repo, label string) ([]provider.Issue, error) {
 	return retry.Value(ctx, p.config, retryable, func(ctx context.Context) ([]provider.Issue, error) {
 		return p.inner.ListLabeledIssues(ctx, repo, label)
+	})
+}
+
+func (p *Provider) GetIssue(ctx context.Context, repo provider.Repo, number int) (*provider.Issue, error) {
+	return retry.Value(ctx, p.config, retryable, func(ctx context.Context) (*provider.Issue, error) {
+		return p.inner.GetIssue(ctx, repo, number)
+	})
+}
+
+func (p *Provider) ReadRepoFile(ctx context.Context, repo provider.Repo, ref, path string) (string, error) {
+	return retry.Value(ctx, p.config, retryable, func(ctx context.Context) (string, error) {
+		return p.inner.ReadRepoFile(ctx, repo, ref, path)
+	})
+}
+
+func (p *Provider) ListRepoDir(ctx context.Context, repo provider.Repo, ref, path string) ([]string, error) {
+	return retry.Value(ctx, p.config, retryable, func(ctx context.Context) ([]string, error) {
+		return p.inner.ListRepoDir(ctx, repo, ref, path)
 	})
 }
 

@@ -13,6 +13,7 @@ import (
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
+	"github.com/anthropics/anthropic-sdk-go/packages/param"
 
 	"github.com/farzan-kh/wright/internal/agent/llm"
 	"github.com/farzan-kh/wright/internal/cost"
@@ -160,12 +161,34 @@ func toAnthropicRequest(req llm.MessageRequest) (anthropic.MessageNewParams, err
 			out.Tools = append(out.Tools, anthropic.ToolUnionParam{OfBashTool20250124: &anthropic.ToolBash20250124Param{}})
 		case "text_editor_20250728":
 			out.Tools = append(out.Tools, anthropic.ToolUnionParam{OfTextEditor20250728: &anthropic.ToolTextEditor20250728Param{}})
+		case "repo_read_file":
+			tu := anthropic.ToolUnionParamOfTool(repoPathSchema("Repo-relative file path to read."), "repo_read_file")
+			tu.OfTool.Description = param.NewOpt("Read a file from the repository at its current default-branch state.")
+			out.Tools = append(out.Tools, tu)
+		case "repo_list_dir":
+			tu := anthropic.ToolUnionParamOfTool(repoPathSchema(`Repo-relative directory path to list ("" for the repo root).`), "repo_list_dir")
+			tu.OfTool.Description = param.NewOpt("List a directory in the repository at its current default-branch state. Directory entries end with \"/\".")
+			out.Tools = append(out.Tools, tu)
 		default:
 			return anthropic.MessageNewParams{}, fmt.Errorf("claude: unknown tool %q", t.Type)
 		}
 	}
 
 	return out, nil
+}
+
+// repoPathSchema is the shared input schema for the repo_read_file and
+// repo_list_dir tools: a single required "path" string.
+func repoPathSchema(pathDescription string) anthropic.ToolInputSchemaParam {
+	return anthropic.ToolInputSchemaParam{
+		Properties: map[string]any{
+			"path": map[string]any{
+				"type":        "string",
+				"description": pathDescription,
+			},
+		},
+		Required: []string{"path"},
+	}
 }
 
 func thinkingConfig(maxTokens int, effort string) anthropic.ThinkingConfigParamUnion {

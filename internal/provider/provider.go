@@ -20,6 +20,21 @@ type Provider interface {
 	// returns only genuine issues (pull/merge requests are excluded).
 	ListLabeledIssues(ctx context.Context, repo Repo, label string) ([]Issue, error)
 
+	// GetIssue fetches a single issue by number, without its comment thread.
+	// Used to resolve cross-issue references (e.g. "blocked by #12") against
+	// live state rather than trusting stale issue text.
+	GetIssue(ctx context.Context, repo Repo, number int) (*Issue, error)
+
+	// ReadRepoFile returns the content of the file at path, at ref (a branch
+	// name or SHA; the empty string means the repo's default branch). Returns
+	// ErrNotFound when path does not exist or is a directory.
+	ReadRepoFile(ctx context.Context, repo Repo, ref, path string) (string, error)
+
+	// ListRepoDir returns the entry names at path, at ref (a branch name or
+	// SHA; the empty string means the repo's default branch). Directory
+	// entries are suffixed with "/". The empty path lists the repo root.
+	ListRepoDir(ctx context.Context, repo Repo, ref, path string) ([]string, error)
+
 	// CommentOnIssue posts body as a comment on the given issue.
 	CommentOnIssue(ctx context.Context, repo Repo, issueNumber int, body string) error
 

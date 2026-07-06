@@ -26,6 +26,23 @@ func (f *fakeProvider) ListLabeledIssues(_ context.Context, _ provider.Repo, _ s
 	return append([]provider.Issue(nil), f.issues...), nil
 }
 
+func (f *fakeProvider) GetIssue(_ context.Context, _ provider.Repo, number int) (*provider.Issue, error) {
+	for _, iss := range f.issues {
+		if iss.Number == number {
+			return &iss, nil
+		}
+	}
+	return nil, provider.ErrNotFound
+}
+
+func (f *fakeProvider) ReadRepoFile(context.Context, provider.Repo, string, string) (string, error) {
+	return "", provider.ErrNotFound
+}
+
+func (f *fakeProvider) ListRepoDir(context.Context, provider.Repo, string, string) ([]string, error) {
+	return nil, provider.ErrNotFound
+}
+
 func (f *fakeProvider) CommentOnIssue(_ context.Context, _ provider.Repo, issueNumber int, body string) error {
 	f.comments = append(f.comments, fmt.Sprintf("%d:%s", issueNumber, body))
 	return nil

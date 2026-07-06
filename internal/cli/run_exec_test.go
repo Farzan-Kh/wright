@@ -176,6 +176,15 @@ func (f *fakeExecProvider) Name() string { return "fake" }
 func (f *fakeExecProvider) ListLabeledIssues(context.Context, provider.Repo, string) ([]provider.Issue, error) {
 	return nil, nil
 }
+func (f *fakeExecProvider) GetIssue(context.Context, provider.Repo, int) (*provider.Issue, error) {
+	return nil, provider.ErrNotFound
+}
+func (f *fakeExecProvider) ReadRepoFile(context.Context, provider.Repo, string, string) (string, error) {
+	return "", provider.ErrNotFound
+}
+func (f *fakeExecProvider) ListRepoDir(context.Context, provider.Repo, string, string) ([]string, error) {
+	return nil, provider.ErrNotFound
+}
 func (f *fakeExecProvider) CommentOnIssue(_ context.Context, _ provider.Repo, issueNumber int, body string) error {
 	f.commentIssueCalls = append(f.commentIssueCalls, strings.TrimSpace(body))
 	_ = issueNumber

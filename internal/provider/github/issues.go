@@ -52,6 +52,20 @@ func (c *Client) ListLabeledIssues(ctx context.Context, repo provider.Repo, labe
 	return issues, nil
 }
 
+// GetIssue fetches a single issue by number, without its comment thread.
+func (c *Client) GetIssue(ctx context.Context, repo provider.Repo, number int) (*provider.Issue, error) {
+	owner, name, err := splitRepo(repo)
+	if err != nil {
+		return nil, err
+	}
+	iss, _, err := c.gh.Issues.Get(ctx, owner, name, number)
+	if err != nil {
+		return nil, fmt.Errorf("github: get issue #%d in %s: %w", number, repo.FullPath, classify(err))
+	}
+	got := toIssue(iss)
+	return &got, nil
+}
+
 // listIssueComments fetches every comment on the given issue, oldest first.
 func (c *Client) listIssueComments(ctx context.Context, owner, name string, issueNumber int) ([]provider.Comment, error) {
 	opts := &gh.IssueListCommentsOptions{ListOptions: gh.ListOptions{PerPage: 100}}
@@ -132,6 +146,7 @@ func toIssue(iss *gh.Issue) provider.Issue {
 		Labels:    labels,
 		URL:       iss.GetHTMLURL(),
 		Author:    iss.GetUser().GetLogin(),
+		State:     iss.GetState(),
 		CreatedAt: iss.GetCreatedAt().Time,
 		UpdatedAt: iss.GetUpdatedAt().Time,
 	}

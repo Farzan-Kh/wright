@@ -62,8 +62,11 @@ func newRunCmd() *cobra.Command {
 				TriggerLabel:    rc.TriggerLabel,
 				NeedsHumanLabel: "needs-human",
 				Poller:          &poller.Poller{Provider: p, Repo: repo, Label: rc.TriggerLabel},
-				Gate:            &gate.Gate{LLM: llmProvider, Model: rc.LLM.GateModel, MaxTokens: 512},
-				OnReady:         exec.Handle,
+				Gate: &gate.Gate{
+					LLM: llmProvider, Model: rc.LLM.GateModel, MaxTokens: 512,
+					Provider: p, Repo: repo, MaxToolTurns: gate.DefaultMaxToolTurns,
+				},
+				OnReady: exec.Handle,
 			}
 			reports, err := pl.RunOnce(cmd.Context())
 			if err != nil {

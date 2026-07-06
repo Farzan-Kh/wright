@@ -2,6 +2,7 @@ package gitlab
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -503,6 +504,106 @@ func TestClosePullRequest(t *testing.T) {
 	}
 	if body["state_event"] != "close" {
 		t.Errorf("state_event = %v, want close", body["state_event"])
+	}
+}
+
+func TestGetIssue(t *testing.T) {
+	h := router(t, map[string]http.HandlerFunc{
+		"GET " + base + "/issues/201": func(w http.ResponseWriter, r *http.Request) {
+			mustWrite(w, mustJSON(t, map[string]any{
+				"id":          9301,
+				"iid":         201,
+				"title":       "Fix bug",
+				"description": "steps",
+				"state":       "closed",
+				"author":      map[string]any{"username": "dave"},
+			}))
+		},
+	})
+	c := newTestClient(t, h)
+	iss, err := c.GetIssue(context.Background(), testRepo, 201)
+	if err != nil {
+		t.Fatalf("GetIssue: %v", err)
+	}
+	if iss.Number != 201 || iss.State != "closed" || iss.Title != "Fix bug" {
+		t.Errorf("issue = %+v", iss)
+	}
+}
+
+func TestGetIssueNotFound(t *testing.T) {
+	h := router(t, map[string]http.HandlerFunc{
+		"GET " + base + "/issues/999": func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+			mustWrite(w, []byte(`{"message":"404 Issue Not Found"}`))
+		},
+	})
+	c := newTestClient(t, h)
+	_, err := c.GetIssue(context.Background(), testRepo, 999)
+	providertest.AssertErrorIs(t, err, provider.ErrNotFound)
+}
+
+func TestReadRepoFile(t *testing.T) {
+	var gotRef string
+	filePath := gl.PathEscape("docs/adr/007-x.md")
+	h := router(t, map[string]http.HandlerFunc{
+		"GET " + base + "/repository/files/" + filePath: func(w http.ResponseWriter, r *http.Request) {
+			gotRef = r.URL.Query().Get("ref")
+			mustWrite(w, mustJSON(t, map[string]any{
+				"file_name": "007-x.md",
+				"file_path": "docs/adr/007-x.md",
+				"encoding":  "base64",
+				"content":   base64.StdEncoding.EncodeToString([]byte("# ADR 007\n")),
+			}))
+		},
+	})
+	c := newTestClient(t, h)
+	content, err := c.ReadRepoFile(context.Background(), testRepo, "main", "docs/adr/007-x.md")
+	if err != nil {
+		t.Fatalf("ReadRepoFile: %v", err)
+	}
+	if content != "# ADR 007\n" {
+		t.Errorf("content = %q", content)
+	}
+	if gotRef != "main" {
+		t.Errorf("ref param = %q, want main", gotRef)
+	}
+}
+
+func TestReadRepoFileResolvesDefaultBranch(t *testing.T) {
+	filePath := gl.PathEscape("missing.md")
+	h := router(t, map[string]http.HandlerFunc{
+		"GET " + base: func(w http.ResponseWriter, r *http.Request) {
+			mustWrite(w, []byte(`{"default_branch":"main"}`))
+		},
+		"GET " + base + "/repository/files/" + filePath: func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+			mustWrite(w, []byte(`{"message":"404 File Not Found"}`))
+		},
+	})
+	c := newTestClient(t, h)
+	_, err := c.ReadRepoFile(context.Background(), testRepo, "", "missing.md")
+	providertest.AssertErrorIs(t, err, provider.ErrNotFound)
+}
+
+func TestListRepoDir(t *testing.T) {
+	h := router(t, map[string]http.HandlerFunc{
+		"GET " + base + "/repository/tree": func(w http.ResponseWriter, r *http.Request) {
+			if got := r.URL.Query().Get("ref"); got != "main" {
+				t.Errorf("ref param = %q, want main", got)
+			}
+			mustWrite(w, mustJSON(t, []map[string]any{
+				{"type": "blob", "name": "006-y.md", "path": "docs/adr/006-y.md"},
+				{"type": "tree", "name": "archive", "path": "docs/adr/archive"},
+			}))
+		},
+	})
+	c := newTestClient(t, h)
+	entries, err := c.ListRepoDir(context.Background(), testRepo, "main", "docs/adr")
+	if err != nil {
+		t.Fatalf("ListRepoDir: %v", err)
+	}
+	if len(entries) != 2 || entries[0] != "006-y.md" || entries[1] != "archive/" {
+		t.Errorf("entries = %v", entries)
 	}
 }
 

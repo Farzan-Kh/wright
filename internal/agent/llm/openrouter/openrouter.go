@@ -251,6 +251,40 @@ var toolSchemas = map[string]tool{
 			},
 		},
 	},
+	"repo_read_file": {
+		Type: "function",
+		Function: toolFunc{
+			Name:        "repo_read_file",
+			Description: "Read a file from the repository at its current default-branch state.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"path": map[string]any{
+						"type":        "string",
+						"description": "Repo-relative file path to read.",
+					},
+				},
+				"required": []string{"path"},
+			},
+		},
+	},
+	"repo_list_dir": {
+		Type: "function",
+		Function: toolFunc{
+			Name:        "repo_list_dir",
+			Description: `List a directory in the repository at its current default-branch state. Directory entries end with "/".`,
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"path": map[string]any{
+						"type":        "string",
+						"description": `Repo-relative directory path to list ("" for the repo root).`,
+					},
+				},
+				"required": []string{"path"},
+			},
+		},
+	},
 }
 
 func toOpenAITool(t llm.ToolSpec) (tool, error) {

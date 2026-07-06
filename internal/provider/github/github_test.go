@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -513,6 +514,87 @@ func TestErrorMapping(t *testing.T) {
 			_, err := c.DefaultBranch(context.Background(), testRepo)
 			providertest.AssertErrorIs(t, err, tc.want)
 		})
+	}
+}
+
+func TestGetIssue(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /repos/acme/widgets/issues/101", func(w http.ResponseWriter, r *http.Request) {
+		mustWrite(w, []byte(`{"number":101,"title":"Fix bug","body":"steps","state":"closed","user":{"login":"alice"}}`))
+	})
+	c := newTestClient(t, mux)
+	iss, err := c.GetIssue(context.Background(), testRepo, 101)
+	if err != nil {
+		t.Fatalf("GetIssue: %v", err)
+	}
+	if iss.Number != 101 || iss.State != "closed" || iss.Title != "Fix bug" {
+		t.Errorf("issue = %+v", iss)
+	}
+}
+
+func TestGetIssueNotFound(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /repos/acme/widgets/issues/999", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		mustWrite(w, []byte(`{"message":"Not Found"}`))
+	})
+	c := newTestClient(t, mux)
+	_, err := c.GetIssue(context.Background(), testRepo, 999)
+	providertest.AssertErrorIs(t, err, provider.ErrNotFound)
+}
+
+func TestReadRepoFile(t *testing.T) {
+	var gotRef string
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /repos/acme/widgets/contents/docs/adr/007-x.md", func(w http.ResponseWriter, r *http.Request) {
+		gotRef = r.URL.Query().Get("ref")
+		mustWrite(w, mustJSON(t, map[string]any{
+			"type":     "file",
+			"name":     "007-x.md",
+			"path":     "docs/adr/007-x.md",
+			"content":  base64.StdEncoding.EncodeToString([]byte("# ADR 007\n")),
+			"encoding": "base64",
+		}))
+	})
+	c := newTestClient(t, mux)
+	content, err := c.ReadRepoFile(context.Background(), testRepo, "main", "docs/adr/007-x.md")
+	if err != nil {
+		t.Fatalf("ReadRepoFile: %v", err)
+	}
+	if content != "# ADR 007\n" {
+		t.Errorf("content = %q", content)
+	}
+	if gotRef != "main" {
+		t.Errorf("ref param = %q, want main", gotRef)
+	}
+}
+
+func TestReadRepoFileNotFound(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /repos/acme/widgets/contents/missing.md", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		mustWrite(w, []byte(`{"message":"Not Found"}`))
+	})
+	c := newTestClient(t, mux)
+	_, err := c.ReadRepoFile(context.Background(), testRepo, "", "missing.md")
+	providertest.AssertErrorIs(t, err, provider.ErrNotFound)
+}
+
+func TestListRepoDir(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /repos/acme/widgets/contents/docs/adr", func(w http.ResponseWriter, r *http.Request) {
+		mustWrite(w, mustJSON(t, []map[string]any{
+			{"type": "file", "name": "006-y.md", "path": "docs/adr/006-y.md"},
+			{"type": "dir", "name": "archive", "path": "docs/adr/archive"},
+		}))
+	})
+	c := newTestClient(t, mux)
+	entries, err := c.ListRepoDir(context.Background(), testRepo, "", "docs/adr")
+	if err != nil {
+		t.Fatalf("ListRepoDir: %v", err)
+	}
+	if len(entries) != 2 || entries[0] != "006-y.md" || entries[1] != "archive/" {
+		t.Errorf("entries = %v", entries)
 	}
 }
 

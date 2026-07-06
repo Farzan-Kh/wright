@@ -46,6 +46,16 @@ func (c *Client) ListLabeledIssues(ctx context.Context, repo provider.Repo, labe
 	return issues, nil
 }
 
+// GetIssue fetches a single issue by number, without its comment thread.
+func (c *Client) GetIssue(ctx context.Context, repo provider.Repo, number int) (*provider.Issue, error) {
+	iss, _, err := c.gl.Issues.GetIssue(pid(repo), int64(number), ctxOpt(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("gitlab: get issue #%d in %s: %w", number, repo.FullPath, classify(err))
+	}
+	got := toIssue(iss)
+	return &got, nil
+}
+
 // listIssueNotes fetches every user-authored note (comment) on the given
 // issue, oldest first. System notes (label changes, status transitions, etc.)
 // are excluded — they aren't discussion content.
@@ -133,6 +143,12 @@ func toIssue(iss *gl.Issue) provider.Issue {
 	if iss.UpdatedAt != nil {
 		updated = *iss.UpdatedAt
 	}
+	state := iss.State
+	if state == "opened" {
+		// Normalize to GitHub's "open"/"closed" vocabulary so callers can
+		// compare Issue.State the same way regardless of provider.
+		state = "open"
+	}
 	return provider.Issue{
 		Number:    int(iss.IID),
 		Title:     iss.Title,
@@ -140,6 +156,7 @@ func toIssue(iss *gl.Issue) provider.Issue {
 		Labels:    []string(iss.Labels),
 		URL:       iss.WebURL,
 		Author:    author,
+		State:     state,
 		CreatedAt: created,
 		UpdatedAt: updated,
 	}

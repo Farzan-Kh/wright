@@ -31,6 +31,7 @@ type Issue struct {
 	Labels    []string
 	URL       string
 	Author    string
+	State     string // "open" or "closed"
 	CreatedAt time.Time
 	UpdatedAt time.Time
 	Comments  []Comment
