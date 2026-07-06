@@ -36,12 +36,18 @@ func (g *Gate) CheckWithUsage(ctx context.Context, issue provider.Issue) (Verdic
 		"Decide whether the issue is implementation-ready: it states a clear, unambiguous problem, " +
 		"states or clearly implies the expected behavior or acceptance criteria, and does not depend " +
 		"on information only a human could supply (e.g. an unspecified design decision, missing " +
-		"credentials, or an open question about which of several approaches to take).\n\n" +
+		"credentials, or an open question about which of several approaches to take). Take the " +
+		"comment thread into account too: information requested in the body is often supplied later " +
+		"in a comment, and that counts toward the issue being ready.\n\n" +
 		"Respond with JSON only, no markdown fences or surrounding prose: " +
 		`{"ready":true|false,"missing":"..."}. ` +
 		"When ready is true, missing must be an empty string. When ready is false, missing must be " +
 		"one concise sentence naming exactly what information is missing.\n\n" +
 		"Title: " + issue.Title + "\n\nBody:\n" + issue.Body
+
+	if comments := issue.FormatComments(); comments != "" {
+		prompt += "\n\nComments:\n" + comments
+	}
 
 	resp, err := g.LLM.CreateMessage(ctx, llm.MessageRequest{
 		Model:     g.Model,

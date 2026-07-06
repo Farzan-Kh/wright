@@ -117,6 +117,12 @@ func TestListLabeledIssues(t *testing.T) {
 			w.Header().Set("X-Next-Page", "2")
 			mustWrite(w, readFixture(t, "issues_page1.json"))
 		},
+		"GET " + base + "/issues/201/notes": func(w http.ResponseWriter, r *http.Request) {
+			mustWrite(w, []byte(`[{"body":"changed the label","author":{"username":"dave"},"system":true,"created_at":"2026-06-05T11:00:00Z"},{"body":"can you also cover the retry path?","author":{"username":"carol"},"system":false,"created_at":"2026-06-05T12:00:00Z"}]`))
+		},
+		"GET " + base + "/issues/202/notes": func(w http.ResponseWriter, r *http.Request) {
+			mustWrite(w, []byte(`[]`))
+		},
 	})
 
 	c := newTestClient(t, h)
@@ -137,6 +143,9 @@ func TestListLabeledIssues(t *testing.T) {
 	providertest.AssertEveryIssueHasLabel(t, issues, "wright")
 	if issues[0].Number != 201 || issues[0].Author != "dave" {
 		t.Errorf("issue[0] = %+v", issues[0])
+	}
+	if len(issues[0].Comments) != 1 || issues[0].Comments[0].Author != "carol" || issues[0].Comments[0].Body != "can you also cover the retry path?" {
+		t.Errorf("issue[0] comments = %+v, want system note excluded", issues[0].Comments)
 	}
 }
 
@@ -228,6 +237,9 @@ func TestIssueLabelRoundTrip(t *testing.T) {
 				"created_at":  "2026-06-05T10:00:00Z",
 				"updated_at":  "2026-06-06T12:00:00Z",
 			}))
+		},
+		"GET " + base + "/issues/201/notes": func(w http.ResponseWriter, r *http.Request) {
+			mustWrite(w, []byte(`[]`))
 		},
 	})
 
@@ -504,6 +516,8 @@ func TestErrorMapping(t *testing.T) {
 		{"unauthorized", http.StatusUnauthorized, provider.ErrAuth},
 		{"forbidden", http.StatusForbidden, provider.ErrAuth},
 		{"rate_limited", http.StatusTooManyRequests, provider.ErrRateLimited},
+		{"bad_request", http.StatusBadRequest, provider.ErrInvalidRequest},
+		{"conflict", http.StatusConflict, provider.ErrInvalidRequest},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

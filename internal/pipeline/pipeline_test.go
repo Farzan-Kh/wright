@@ -176,7 +176,10 @@ func TestRunOnceNeedsHumanAddsLabel(t *testing.T) {
 	if len(fp.addedLabels) != 1 || fp.addedLabels[0] != "42:needs-human" {
 		t.Fatalf("addedLabels = %v", fp.addedLabels)
 	}
-	if len(fp.comments) != 1 {
-		t.Fatalf("comments = %d, want 1", len(fp.comments))
+	// Execution failures are operational (sandbox, verify, git, etc.) rather
+	// than issue-content problems, so they must not be posted as a comment —
+	// only logged via the run report.
+	if len(fp.comments) != 0 {
+		t.Fatalf("comments = %d, want 0 (execution errors should not be posted to the issue)", len(fp.comments))
 	}
 }

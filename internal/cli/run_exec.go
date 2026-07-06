@@ -218,19 +218,27 @@ func buildAgentSystemPrompt(issue provider.Issue, rc *config.RepoConfig, baseBra
 		rc.Sandbox.Image, rc.Sandbox.Workdir, sandbox.DefaultRepoDir, baseBranch, verifyCmd,
 	)
 
+	issueText := "Target issue:\n\n#" + fmt.Sprintf("%d", issue.Number) + " " + issue.Title + "\n\n" + issue.Body
+	if comments := issue.FormatComments(); comments != "" {
+		issueText += "\n\nComments:\n" + comments
+	}
+
 	return []llm.SystemBlock{
 		{Text: behavior},
 		{Text: agentOperationalContract},
 		{Text: environment},
-		{Text: "Target issue:\n\n#" + fmt.Sprintf("%d", issue.Number) + " " + issue.Title + "\n\n" + issue.Body, CachePrompt: true},
+		{Text: issueText, CachePrompt: true},
 	}
 }
 
 func buildAgentHistory(issue provider.Issue) []llm.Message {
 	msg := "Implement this issue in the checked-out repository.\n\n" +
 		"Issue title: " + issue.Title + "\n\n" +
-		"Issue body:\n" + issue.Body + "\n\n" +
-		"When done, stop and summarize what changed."
+		"Issue body:\n" + issue.Body
+	if comments := issue.FormatComments(); comments != "" {
+		msg += "\n\nComments:\n" + comments
+	}
+	msg += "\n\nWhen done, stop and summarize what changed."
 	return []llm.Message{{
 		Role:    "user",
 		Content: []llm.ContentBlock{{Type: "text", Text: msg}},

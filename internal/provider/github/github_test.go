@@ -77,6 +77,12 @@ func TestListLabeledIssues(t *testing.T) {
 		w.Header().Set("Link", `<http://`+r.Host+`/repos/acme/widgets/issues?page=2>; rel="next"`)
 		mustWrite(w, readFixture(t, "issues_page1.json"))
 	})
+	mux.HandleFunc("GET /repos/acme/widgets/issues/101/comments", func(w http.ResponseWriter, r *http.Request) {
+		mustWrite(w, []byte(`[{"body":"can you also cover the retry path?","user":{"login":"carol"},"created_at":"2026-06-01T12:00:00Z"}]`))
+	})
+	mux.HandleFunc("GET /repos/acme/widgets/issues/103/comments", func(w http.ResponseWriter, r *http.Request) {
+		mustWrite(w, []byte(`[]`))
+	})
 
 	c := newTestClient(t, mux)
 	issues, err := c.ListLabeledIssues(context.Background(), testRepo, "wright")
@@ -103,6 +109,12 @@ func TestListLabeledIssues(t *testing.T) {
 	}
 	if issues[0].Labels[0] != "wright" || issues[0].Labels[1] != "bug" {
 		t.Errorf("issue[0] labels = %v", issues[0].Labels)
+	}
+	if len(issues[0].Comments) != 1 || issues[0].Comments[0].Author != "carol" || issues[0].Comments[0].Body != "can you also cover the retry path?" {
+		t.Errorf("issue[0] comments = %+v", issues[0].Comments)
+	}
+	if len(issues[1].Comments) != 0 {
+		t.Errorf("issue[1] comments = %+v, want none", issues[1].Comments)
 	}
 }
 
@@ -190,6 +202,9 @@ func TestIssueLabelRoundTrip(t *testing.T) {
 		}
 		labels = out
 		w.WriteHeader(http.StatusOK)
+	})
+	m.HandleFunc("GET /repos/acme/widgets/issues/101/comments", func(w http.ResponseWriter, r *http.Request) {
+		mustWrite(w, []byte(`[]`))
 	})
 
 	c := newTestClient(t, m)
@@ -484,6 +499,8 @@ func TestErrorMapping(t *testing.T) {
 		{"unauthorized", http.StatusUnauthorized, provider.ErrAuth},
 		{"forbidden", http.StatusForbidden, provider.ErrAuth},
 		{"rate_limited", http.StatusTooManyRequests, provider.ErrRateLimited},
+		{"bad_request", http.StatusBadRequest, provider.ErrInvalidRequest},
+		{"conflict", http.StatusConflict, provider.ErrInvalidRequest},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

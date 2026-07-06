@@ -1,6 +1,10 @@
 package provider
 
-import "time"
+import (
+	"fmt"
+	"strings"
+	"time"
+)
 
 // The domain vocabulary in this package is deliberately GitHub-flavored
 // ("pull request", "issue number"). The GitLab adapter maps its own concepts
@@ -17,6 +21,9 @@ type Repo struct {
 }
 
 // Issue is an open issue on the provider. Labels holds the label names only.
+// Comments holds the issue's discussion thread (oldest first): a lot of the
+// detail an implementer needs — clarifications, decisions, scope changes —
+// only ever shows up there, not in the original Body.
 type Issue struct {
 	Number    int
 	Title     string
@@ -26,6 +33,35 @@ type Issue struct {
 	Author    string
 	CreatedAt time.Time
 	UpdatedAt time.Time
+	Comments  []Comment
+}
+
+// Comment is a single comment (GitLab: note) on an issue's discussion thread.
+type Comment struct {
+	Author    string
+	Body      string
+	CreatedAt time.Time
+}
+
+// FormatComments renders the issue's discussion thread as plain text suitable
+// for inclusion in an LLM prompt, oldest first. It returns "" when there are
+// no comments.
+func (i Issue) FormatComments() string {
+	if len(i.Comments) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for n, c := range i.Comments {
+		if n > 0 {
+			b.WriteString("\n\n")
+		}
+		author := c.Author
+		if author == "" {
+			author = "unknown"
+		}
+		fmt.Fprintf(&b, "@%s:\n%s", author, c.Body)
+	}
+	return b.String()
 }
 
 // Commit is a single commit to be created through the provider's API. It

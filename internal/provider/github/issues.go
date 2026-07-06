@@ -41,7 +41,39 @@ func (c *Client) ListLabeledIssues(ctx context.Context, repo provider.Repo, labe
 		}
 		opts.ListOptions.Page = resp.NextPage
 	}
+
+	for i := range issues {
+		comments, err := c.listIssueComments(ctx, owner, name, issues[i].Number)
+		if err != nil {
+			return nil, fmt.Errorf("github: list comments on issue #%d in %s: %w", issues[i].Number, repo.FullPath, classify(err))
+		}
+		issues[i].Comments = comments
+	}
 	return issues, nil
+}
+
+// listIssueComments fetches every comment on the given issue, oldest first.
+func (c *Client) listIssueComments(ctx context.Context, owner, name string, issueNumber int) ([]provider.Comment, error) {
+	opts := &gh.IssueListCommentsOptions{ListOptions: gh.ListOptions{PerPage: 100}}
+	var comments []provider.Comment
+	for {
+		page, resp, err := c.gh.Issues.ListComments(ctx, owner, name, issueNumber, opts)
+		if err != nil {
+			return nil, err
+		}
+		for _, com := range page {
+			comments = append(comments, provider.Comment{
+				Author:    com.GetUser().GetLogin(),
+				Body:      com.GetBody(),
+				CreatedAt: com.GetCreatedAt().Time,
+			})
+		}
+		if resp.NextPage == 0 {
+			break
+		}
+		opts.ListOptions.Page = resp.NextPage
+	}
+	return comments, nil
 }
 
 // CommentOnIssue posts body as a comment on the issue.

@@ -4,7 +4,6 @@ package pipeline
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/farzan-kh/wright/internal/cost"
@@ -104,8 +103,6 @@ func (p *Pipeline) RunOnce(ctx context.Context) ([]IssueReport, error) {
 			}
 			rep.Status = "needs-human"
 			rep.Detail = err.Error()
-			_ = p.Provider.CommentOnIssue(ctx, p.Repo, iss.Number,
-				fmt.Sprintf("Wright stopped after bounded attempts.\n\nError: %v\n\nTurns: %d\nInput tokens: %d\nOutput tokens: %d", err, rep.Cost.Turns, rep.Cost.Usage.InputTokens, rep.Cost.Usage.OutputTokens))
 			_ = p.Provider.RemoveIssueLabel(ctx, p.Repo, iss.Number, p.TriggerLabel)
 			if strings.TrimSpace(p.NeedsHumanLabel) != "" {
 				_ = p.Provider.AddIssueLabel(ctx, p.Repo, iss.Number, p.NeedsHumanLabel)

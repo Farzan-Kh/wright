@@ -35,7 +35,48 @@ func (c *Client) ListLabeledIssues(ctx context.Context, repo provider.Repo, labe
 		}
 		opts.Page = resp.NextPage
 	}
+
+	for i := range issues {
+		notes, err := c.listIssueNotes(ctx, repo, issues[i].Number)
+		if err != nil {
+			return nil, fmt.Errorf("gitlab: list notes on issue #%d in %s: %w", issues[i].Number, repo.FullPath, classify(err))
+		}
+		issues[i].Comments = notes
+	}
 	return issues, nil
+}
+
+// listIssueNotes fetches every user-authored note (comment) on the given
+// issue, oldest first. System notes (label changes, status transitions, etc.)
+// are excluded — they aren't discussion content.
+func (c *Client) listIssueNotes(ctx context.Context, repo provider.Repo, issueNumber int) ([]provider.Comment, error) {
+	opts := &gl.ListIssueNotesOptions{ListOptions: gl.ListOptions{PerPage: 100}}
+	var comments []provider.Comment
+	for {
+		page, resp, err := c.gl.Notes.ListIssueNotes(pid(repo), int64(issueNumber), opts, ctxOpt(ctx))
+		if err != nil {
+			return nil, err
+		}
+		for _, note := range page {
+			if note.System {
+				continue
+			}
+			var created time.Time
+			if note.CreatedAt != nil {
+				created = *note.CreatedAt
+			}
+			comments = append(comments, provider.Comment{
+				Author:    note.Author.Username,
+				Body:      note.Body,
+				CreatedAt: created,
+			})
+		}
+		if resp.NextPage == 0 {
+			break
+		}
+		opts.Page = resp.NextPage
+	}
+	return comments, nil
 }
 
 // CommentOnIssue posts body as a note on the issue.
