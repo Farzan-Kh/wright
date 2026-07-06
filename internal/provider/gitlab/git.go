@@ -21,9 +21,10 @@ func (c *Client) DefaultBranch(ctx context.Context, repo provider.Repo) (string,
 
 // CreateBranch creates branch pointing at fromRef (a branch name or SHA).
 func (c *Client) CreateBranch(ctx context.Context, repo provider.Repo, branch, fromRef string) error {
+	branch = provider.SanitizeRef(branch)
 	_, _, err := c.gl.Branches.CreateBranch(pid(repo), &gl.CreateBranchOptions{
 		Branch: gl.Ptr(branch),
-		Ref:    gl.Ptr(fromRef),
+		Ref:    gl.Ptr(provider.SanitizeRef(fromRef)),
 	}, ctxOpt(ctx))
 	if err != nil {
 		if isAlreadyExists(err) {
@@ -36,6 +37,7 @@ func (c *Client) CreateBranch(ctx context.Context, repo provider.Repo, branch, f
 
 // DeleteBranch deletes branch.
 func (c *Client) DeleteBranch(ctx context.Context, repo provider.Repo, branch string) error {
+	branch = provider.SanitizeRef(branch)
 	_, err := c.gl.Branches.DeleteBranch(pid(repo), branch, ctxOpt(ctx))
 	if err != nil {
 		return fmt.Errorf("gitlab: delete branch %q in %s: %w", branch, repo.FullPath, classify(err))
@@ -49,6 +51,7 @@ func (c *Client) PushCommits(ctx context.Context, repo provider.Repo, branch str
 	if len(commits) == 0 {
 		return "", fmt.Errorf("gitlab: push commits to %q in %s: no commits", branch, repo.FullPath)
 	}
+	branch = provider.SanitizeRef(branch)
 
 	var head string
 	for _, commit := range commits {
@@ -62,7 +65,7 @@ func (c *Client) PushCommits(ctx context.Context, repo provider.Repo, branch str
 		}
 		created, _, err := c.gl.Commits.CreateCommit(pid(repo), &gl.CreateCommitOptions{
 			Branch:        gl.Ptr(branch),
-			CommitMessage: gl.Ptr(commit.Message),
+			CommitMessage: gl.Ptr(provider.SanitizeText(commit.Message)),
 			Actions:       actions,
 		}, ctxOpt(ctx))
 		if err != nil {

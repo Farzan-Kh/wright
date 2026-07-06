@@ -42,8 +42,8 @@ func (c *Client) OpenPullRequest(ctx context.Context, repo provider.Repo, spec p
 		return nil, err
 	}
 	pr, _, err := c.gh.PullRequests.Create(ctx, owner, name, &gh.NewPullRequest{
-		Title: gh.Ptr(spec.Title),
-		Body:  gh.Ptr(spec.Body),
+		Title: gh.Ptr(provider.SanitizeText(spec.Title)),
+		Body:  gh.Ptr(provider.SanitizeText(spec.Body)),
 		Head:  gh.Ptr(spec.HeadBranch),
 		Base:  gh.Ptr(spec.BaseBranch),
 		Draft: gh.Ptr(spec.Draft),
@@ -77,7 +77,7 @@ func (c *Client) CommentOnPullRequest(ctx context.Context, repo provider.Repo, n
 	if err != nil {
 		return err
 	}
-	if _, _, err := c.gh.Issues.CreateComment(ctx, owner, name, number, &gh.IssueComment{Body: gh.Ptr(body)}); err != nil {
+	if _, _, err := c.gh.Issues.CreateComment(ctx, owner, name, number, &gh.IssueComment{Body: gh.Ptr(provider.SanitizeText(body))}); err != nil {
 		return fmt.Errorf("github: comment on pull request #%d in %s: %w", number, repo.FullPath, classify(err))
 	}
 	return nil

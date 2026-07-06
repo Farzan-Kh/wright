@@ -61,8 +61,9 @@ type Ops struct {
 
 // CommitAndPush commits all staged changes and pushes to the per-issue branch.
 func (o *Ops) CommitAndPush(ctx context.Context, issueNumber int, remoteURL, token, commitMessage string) (branch, diffSummary string, err error) {
-	branch = BranchName(issueNumber)
-	if _, err := o.Exec.Bash(ctx, "git checkout -b "+branch); err != nil {
+	branch = provider.SanitizeRef(BranchName(issueNumber))
+	commitMessage = provider.SanitizeText(commitMessage)
+	if _, err := o.Exec.Bash(ctx, "git checkout -b "+shellQuote(branch)); err != nil {
 		return "", "", fmt.Errorf("gitops: create branch %s: %w", branch, err)
 	}
 	if _, err := o.Exec.Bash(ctx, "git add -A"); err != nil {

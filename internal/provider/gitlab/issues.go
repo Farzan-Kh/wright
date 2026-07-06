@@ -92,7 +92,7 @@ func (c *Client) listIssueNotes(ctx context.Context, repo provider.Repo, issueNu
 // CommentOnIssue posts body as a note on the issue.
 func (c *Client) CommentOnIssue(ctx context.Context, repo provider.Repo, issueNumber int, body string) error {
 	_, _, err := c.gl.Notes.CreateIssueNote(pid(repo), int64(issueNumber), &gl.CreateIssueNoteOptions{
-		Body: gl.Ptr(body),
+		Body: gl.Ptr(provider.SanitizeText(body)),
 	}, ctxOpt(ctx))
 	if err != nil {
 		return fmt.Errorf("gitlab: comment on issue #%d in %s: %w", issueNumber, repo.FullPath, classify(err))

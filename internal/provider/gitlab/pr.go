@@ -34,13 +34,13 @@ func (c *Client) FindOpenPullRequestByHead(ctx context.Context, repo provider.Re
 // OpenPullRequest opens a merge request per spec. A draft is expressed as a
 // "Draft:" title prefix, GitLab's convention.
 func (c *Client) OpenPullRequest(ctx context.Context, repo provider.Repo, spec provider.PullRequestSpec) (*provider.PullRequest, error) {
-	title := spec.Title
+	title := provider.SanitizeText(spec.Title)
 	if spec.Draft {
 		title = "Draft: " + title
 	}
 	mr, _, err := c.gl.MergeRequests.CreateMergeRequest(pid(repo), &gl.CreateMergeRequestOptions{
 		Title:        gl.Ptr(title),
-		Description:  gl.Ptr(spec.Body),
+		Description:  gl.Ptr(provider.SanitizeText(spec.Body)),
 		SourceBranch: gl.Ptr(spec.HeadBranch),
 		TargetBranch: gl.Ptr(spec.BaseBranch),
 	}, ctxOpt(ctx))
@@ -70,7 +70,7 @@ func (c *Client) OpenPullRequest(ctx context.Context, repo provider.Repo, spec p
 // endpoint rather than CommentOnIssue.
 func (c *Client) CommentOnPullRequest(ctx context.Context, repo provider.Repo, number int, body string) error {
 	_, _, err := c.gl.Notes.CreateMergeRequestNote(pid(repo), int64(number), &gl.CreateMergeRequestNoteOptions{
-		Body: gl.Ptr(body),
+		Body: gl.Ptr(provider.SanitizeText(body)),
 	}, ctxOpt(ctx))
 	if err != nil {
 		return fmt.Errorf("gitlab: comment on merge request !%d in %s: %w", number, repo.FullPath, classify(err))

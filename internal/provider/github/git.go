@@ -32,7 +32,8 @@ func (c *Client) CreateBranch(ctx context.Context, repo provider.Repo, branch, f
 	if err != nil {
 		return err
 	}
-	sha, err := c.resolveSHA(ctx, owner, name, fromRef)
+	branch = provider.SanitizeRef(branch)
+	sha, err := c.resolveSHA(ctx, owner, name, provider.SanitizeRef(fromRef))
 	if err != nil {
 		return fmt.Errorf("github: resolve %q in %s: %w", fromRef, repo.FullPath, classify(err))
 	}
@@ -56,6 +57,7 @@ func (c *Client) DeleteBranch(ctx context.Context, repo provider.Repo, branch st
 	if err != nil {
 		return err
 	}
+	branch = provider.SanitizeRef(branch)
 	_, err = c.gh.Git.DeleteRef(ctx, owner, name, "refs/heads/"+branch)
 	if err != nil {
 		return fmt.Errorf("github: delete branch %q in %s: %w", branch, repo.FullPath, classify(err))
@@ -73,6 +75,7 @@ func (c *Client) PushCommits(ctx context.Context, repo provider.Repo, branch str
 	if len(commits) == 0 {
 		return "", fmt.Errorf("github: push commits to %q in %s: no commits", branch, repo.FullPath)
 	}
+	branch = provider.SanitizeRef(branch)
 
 	parentSHA, err := c.resolveSHA(ctx, owner, name, branch)
 	if err != nil {
@@ -96,7 +99,7 @@ func (c *Client) PushCommits(ctx context.Context, repo provider.Repo, branch str
 		}
 
 		newCommit, _, err := c.gh.Git.CreateCommit(ctx, owner, name, gh.Commit{
-			Message: gh.Ptr(commit.Message),
+			Message: gh.Ptr(provider.SanitizeText(commit.Message)),
 			Tree:    &gh.Tree{SHA: tree.SHA},
 			Parents: []*gh.Commit{{SHA: gh.Ptr(parentSHA)}},
 		}, nil)

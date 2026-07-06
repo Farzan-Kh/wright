@@ -96,7 +96,7 @@ func (c *Client) CommentOnIssue(ctx context.Context, repo provider.Repo, issueNu
 	if err != nil {
 		return err
 	}
-	_, _, err = c.gh.Issues.CreateComment(ctx, owner, name, issueNumber, &gh.IssueComment{Body: gh.Ptr(body)})
+	_, _, err = c.gh.Issues.CreateComment(ctx, owner, name, issueNumber, &gh.IssueComment{Body: gh.Ptr(provider.SanitizeText(body))})
 	if err != nil {
 		return fmt.Errorf("github: comment on issue #%d in %s: %w", issueNumber, repo.FullPath, classify(err))
 	}
