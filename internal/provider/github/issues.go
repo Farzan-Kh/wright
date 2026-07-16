@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package github
 
 import (
@@ -85,7 +87,7 @@ func (c *Client) listIssueComments(ctx context.Context, owner, name string, issu
 		if resp.NextPage == 0 {
 			break
 		}
-		opts.ListOptions.Page = resp.NextPage
+		opts.Page = resp.NextPage
 	}
 	return comments, nil
 }
