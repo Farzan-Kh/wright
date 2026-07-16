@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package gitops performs deterministic git operations inside the sandbox clone.
 package gitops
 

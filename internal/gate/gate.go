@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package gate performs info-sufficiency triage for issues.
 package gate
 

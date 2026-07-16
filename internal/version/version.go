@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package version exposes the build version of the wright binary.
 package version
 

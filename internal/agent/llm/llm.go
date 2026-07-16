@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package llm defines Wright's model-agnostic LLM contract.
 package llm
 

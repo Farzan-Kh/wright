@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package logging sets up wright's optional diagnostic logger. It is off by
 // default: only the "-v"/"--verbose" CLI flag turns it on, and only then does
 // anything get written, to a file rather than stdout/stderr (which are

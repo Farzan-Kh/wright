@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package config defines Wright's YAML configuration format and the routines to
 // load and validate it. Credentials are never part of the config file; tokens
 // are resolved from environment variables (see token.go).

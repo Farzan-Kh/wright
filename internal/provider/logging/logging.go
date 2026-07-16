@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package logging decorates a provider.Provider with structured logging of
 // every call: the method and its key arguments on entry, and the duration
 // plus outcome (a brief result summary, or the full error chain) on exit.

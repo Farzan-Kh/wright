@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package cli implements the wright command-line interface using cobra.
 package cli
 

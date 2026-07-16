@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package retry implements configurable retry-with-backoff for connection
 // attempts to external services: provider APIs (GitHub/GitLab), the LLM API,
 // the Docker daemon, and git network operations.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package retrying decorates an llm.LLMProvider with configurable retries
 // around each connection attempt to the model API.
 package retrying

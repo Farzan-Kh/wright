@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package factory constructs a provider.Provider from a repo's config entry.
 // It lives in its own package (rather than in internal/provider) because it
 // depends on the concrete github and gitlab adapters, which in turn depend on

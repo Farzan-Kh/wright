@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package openrouter implements an llm.LLMProvider backed by OpenRouter's
 // OpenAI-compatible Chat Completions API (https://openrouter.ai/api/v1).
 //

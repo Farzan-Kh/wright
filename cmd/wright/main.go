@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Command wright is the entry point for the Wright CLI.
 package main
 

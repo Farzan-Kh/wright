@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package providertest holds shared, provider-agnostic assertions that both the
 // GitHub and GitLab adapter test suites run against their own httptest fakes.
 // It deliberately does not stand up a fake itself — each adapter speaks a

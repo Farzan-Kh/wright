@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package gitlab implements provider.Provider against the GitLab REST API using
 // the official gitlab.com/gitlab-org/api/client-go (the successor to the
 // archived xanzy/go-gitlab). The client-go package is imported under the alias

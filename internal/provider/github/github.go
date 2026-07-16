@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package github implements provider.Provider against the GitHub REST API using
 // google/go-github. The go-github package is imported under the alias gh to
 // avoid colliding with this package's own name.

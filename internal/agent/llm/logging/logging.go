@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package logging decorates an llm.LLMProvider with structured logging of
 // every call: the request shape on entry, and the duration plus outcome (a
 // brief usage summary, or the full error chain) on exit.

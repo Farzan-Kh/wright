@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package retrying decorates a provider.Provider with configurable retries
 // around every connection attempt to the hosting API.
 package retrying

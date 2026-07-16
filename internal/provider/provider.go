@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package provider defines Wright's provider-agnostic interface for hosting
 // services (GitHub, GitLab) along with the domain types and sentinel errors
 // that adapters map onto. It is a leaf package: everything else in Wright

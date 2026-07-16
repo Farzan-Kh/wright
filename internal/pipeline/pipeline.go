@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package pipeline wires poll -> gate -> execution -> failure reporting.
 package pipeline
 

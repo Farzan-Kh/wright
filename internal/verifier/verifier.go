@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package verifier detects and runs a repository's native test command.
 package verifier
 

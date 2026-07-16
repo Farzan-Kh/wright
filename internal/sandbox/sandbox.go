@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package sandbox defines the isolated tool-execution abstraction used by the
 // agent and verifier. Docker-backed execution is implemented in this package.
 package sandbox
