@@ -1,8 +1,51 @@
 # Wright
 
-Wright is a self-hosted Go daemon that resolves labeled, well-scoped GitHub and
-GitLab issues with an LLM agent and opens pull requests — built from the ground
-up to minimize token cost per resolved issue.
+Wright is a self-hosted daemon that turns well-scoped GitHub and GitLab
+issues into verified, ready-to-review pull requests — unattended, around the
+clock — while treating **cost per resolved issue** as the design constraint,
+not an afterthought.
+
+## The problem
+
+Every backlog has a long tail of issues that are clearly scoped but not worth
+a senior engineer's time: small bug fixes, minor features, chores, mechanical
+refactors. General-purpose AI coding assistants — chat-driven, IDE-embedded,
+cloud "AI engineer" products — can technically do this work, but they're
+built for a human sitting in the loop, paying for a broad, flexible tool on
+every turn. That cost structure doesn't fit the job of "take a scoped issue,
+produce a merged PR, unattended, at scale, cheaply."
+
+## The idea
+
+Wright is narrow on purpose. It does one job — issue in, verified PR out —
+and spends an LLM call only where an LLM call is actually required:
+understanding the issue and writing or adjusting code. Everything around
+that — polling, gating, sandboxing, git operations, running the repo's own
+test suite, retrying against real failures, opening the PR — is deterministic
+Go, not more model calls. That's the whole efficiency story: not a cheaper
+model, a smaller loop.
+
+It's built first for individual developers and small teams who want their
+backlog worked down without a large AI spend or a third party holding push
+access to their code — which is also why it's self-hosted: a single static
+binary, small enough to read end to end, so you know exactly what it does
+with your credentials.
+
+## What Wright is not
+
+- **Not a general-purpose coding assistant.** No chat, no IDE plugin, no "help
+  me design this system." It takes a scoped issue and produces a patch —
+  nothing broader.
+- **Not interactive.** There's no pairing session to drive. It runs
+  unattended; you interact with it through issue comments, PR review, and
+  config, not a conversation.
+- **Not a product manager.** It doesn't decide what should be built. Scoping
+  the work — writing and labeling the issue — is still yours; Wright
+  implements.
+- **Not a hosted service.** Self-hosted first, by design — your token, your
+  container, your infrastructure.
+- **Not (yet) proven at scale.** It's pre-alpha, see below — the pipeline
+  runs end to end, but the reliability track record is still being built.
 
 > **Status: pre-alpha (Phase 1).** The end-to-end single-repo pipeline is now
 > implemented: poll labeled issues, run a gate, execute an agent in a Docker
