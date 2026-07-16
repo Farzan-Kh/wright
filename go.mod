@@ -3,7 +3,7 @@ module github.com/farzan-kh/wright
 go 1.26
 
 require (
-	github.com/anthropics/anthropic-sdk-go v1.56.0
+	github.com/anthropics/anthropic-sdk-go v1.57.0
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/google/go-github/v78 v78.0.0
 	github.com/spf13/cobra v1.10.2
