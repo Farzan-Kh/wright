@@ -9,6 +9,12 @@ up to minimize token cost per resolved issue.
 > sandbox, verify with the repo's own tests, and open a PR. Interfaces/config
 > may still evolve while the project hardens toward Phase 2.
 
+> **⚠️ Security: the trigger label is a trust boundary.** Wright feeds issue
+> text — from anyone who can file an issue — to an LLM agent that writes code
+> and opens PRs against your repo. Only apply `trigger_label` to issues from
+> people you trust. See [SECURITY.md](SECURITY.md) for the full threat model,
+> token scope guidance, and hardening recommendations.
+
 ## What works today
 
 - A `Provider` interface with **GitHub** and **GitLab** adapters covering the
@@ -65,10 +71,10 @@ repos:
 > discarding.
 
 > **LLM providers.** `claude` is the default and the path Phase 1 is built
-> around (Phase 1 is Claude-only per `docs/PHASE_1_PLAN.md`). `openrouter` is an
-> optional extension beyond that plan: it targets OpenRouter's
-> OpenAI-compatible API, supports `auth: api_key` only, and reads its key from
-> `WRIGHT_OPENROUTER_API_KEY` / `OPENROUTER_API_KEY`.
+> around and tested against. `openrouter` is an optional extension beyond
+> that: it targets OpenRouter's OpenAI-compatible API, supports
+> `auth: api_key` only, and reads its key from `WRIGHT_OPENROUTER_API_KEY` /
+> `OPENROUTER_API_KEY`.
 
 Credentials are **never** stored in the config file. Tokens are read from
 environment variables, resolved in this order:
@@ -114,7 +120,7 @@ and adapter testing.
 Current implementation centers on `internal/{poller,gate,sandbox,agent,verifier,gitops,pipeline}`
 plus `internal/{config,provider,cli}`.
 
-Phase 2 work (queueing/concurrency/reliability hardening) is tracked in `docs/ROADMAP.md`.
+Phase 2 work (queueing/concurrency/reliability hardening) is planned but not yet implemented.
 
 ## License
 
