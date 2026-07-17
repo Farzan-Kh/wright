@@ -106,7 +106,7 @@ func TestBuildAgentSystemPromptDefaultIncludesDynamicFacts(t *testing.T) {
 	rc := &config.RepoConfig{
 		Sandbox: config.SandboxConfig{Image: "alpine/git:2.47.2", Workdir: "/workspace"},
 	}
-	blocks := buildAgentSystemPrompt(provider.Issue{Number: 5, Title: "Fix bug", Body: "Steps"}, rc, "main", "go test ./...")
+	blocks := buildAgentSystemPrompt(provider.Issue{Number: 5, Title: "Fix bug", Body: "Steps"}, rc, "main", "go test ./...", "", "")
 
 	var all strings.Builder
 	for _, b := range blocks {
@@ -137,7 +137,7 @@ func TestBuildAgentSystemPromptDefaultIncludesDynamicFacts(t *testing.T) {
 
 func TestBuildAgentSystemPromptSystemAppend(t *testing.T) {
 	rc := &config.RepoConfig{Prompt: config.PromptConfig{SystemAppend: "Always update CHANGELOG.md."}}
-	blocks := buildAgentSystemPrompt(provider.Issue{Number: 1, Title: "T"}, rc, "main", "make test")
+	blocks := buildAgentSystemPrompt(provider.Issue{Number: 1, Title: "T"}, rc, "main", "make test", "", "")
 
 	if !strings.Contains(blocks[0].Text, defaultAgentBehaviorPrompt) {
 		t.Fatalf("behavior block should still contain the default text, got %q", blocks[0].Text)
@@ -149,7 +149,7 @@ func TestBuildAgentSystemPromptSystemAppend(t *testing.T) {
 
 func TestBuildAgentSystemPromptSystemOverride(t *testing.T) {
 	rc := &config.RepoConfig{Prompt: config.PromptConfig{SystemOverride: "You are a specialized widget-repo agent."}}
-	blocks := buildAgentSystemPrompt(provider.Issue{Number: 1, Title: "T"}, rc, "main", "make test")
+	blocks := buildAgentSystemPrompt(provider.Issue{Number: 1, Title: "T"}, rc, "main", "make test", "", "")
 
 	if blocks[0].Text != "You are a specialized widget-repo agent." {
 		t.Fatalf("behavior block = %q, want the override verbatim", blocks[0].Text)
@@ -164,6 +164,76 @@ func TestBuildAgentSystemPromptSystemOverride(t *testing.T) {
 	}
 	if !strings.Contains(all.String(), "the harness stages, commits, pushes") {
 		t.Fatal("operational contract must still be present even when behavior text is overridden")
+	}
+}
+
+func TestReadRepoInstructionsPrefersCLAUDEMD(t *testing.T) {
+	exec := &sandbox.FakeExec{Files: map[string]string{
+		"CLAUDE.md": "claude instructions",
+		"AGENTS.md": "agents instructions",
+	}}
+	name, content, err := readRepoInstructions(context.Background(), exec)
+	if err != nil {
+		t.Fatalf("readRepoInstructions: %v", err)
+	}
+	if name != "CLAUDE.md" || content != "claude instructions" {
+		t.Fatalf("got (%q, %q), want (CLAUDE.md, claude instructions)", name, content)
+	}
+}
+
+func TestReadRepoInstructionsFallsBackToAgentsMD(t *testing.T) {
+	exec := &sandbox.FakeExec{Files: map[string]string{
+		"AGENTS.md": "agents instructions",
+	}}
+	name, content, err := readRepoInstructions(context.Background(), exec)
+	if err != nil {
+		t.Fatalf("readRepoInstructions: %v", err)
+	}
+	if name != "AGENTS.md" || content != "agents instructions" {
+		t.Fatalf("got (%q, %q), want (AGENTS.md, agents instructions)", name, content)
+	}
+}
+
+func TestReadRepoInstructionsNoneFound(t *testing.T) {
+	exec := &sandbox.FakeExec{Files: map[string]string{"README.md": "hi"}}
+	name, content, err := readRepoInstructions(context.Background(), exec)
+	if err != nil {
+		t.Fatalf("readRepoInstructions: %v", err)
+	}
+	if name != "" || content != "" {
+		t.Fatalf("got (%q, %q), want (\"\", \"\")", name, content)
+	}
+}
+
+func TestBuildAgentSystemPromptRepoInstructions(t *testing.T) {
+	rc := &config.RepoConfig{Sandbox: config.SandboxConfig{Image: "alpine/git:2.47.2", Workdir: "/workspace"}}
+	blocks := buildAgentSystemPrompt(provider.Issue{Number: 1, Title: "T"}, rc, "main", "make test", "CLAUDE.md", "This repo uses X.")
+
+	if len(blocks) != 5 {
+		t.Fatalf("got %d blocks, want 5 (behavior, contract, repo instructions, environment, issue text)", len(blocks))
+	}
+	instr := blocks[2].Text
+	if !strings.Contains(instr, "CLAUDE.md") || !strings.Contains(instr, "This repo uses X.") {
+		t.Fatalf("repo instructions block missing content: %q", instr)
+	}
+	if !strings.Contains(instr, "does not override the operational contract") {
+		t.Fatalf("repo instructions block should be framed as non-authoritative: %q", instr)
+	}
+	if !strings.HasPrefix(blocks[3].Text, "Environment:") {
+		t.Fatalf("environment block should follow repo instructions, got %q", blocks[3].Text)
+	}
+
+	last := blocks[len(blocks)-1]
+	if !last.CachePrompt {
+		t.Fatal("last block (issue text) should have CachePrompt=true")
+	}
+}
+
+func TestBuildAgentSystemPromptNoRepoInstructionsOmitsBlock(t *testing.T) {
+	rc := &config.RepoConfig{Sandbox: config.SandboxConfig{Image: "alpine/git:2.47.2", Workdir: "/workspace"}}
+	blocks := buildAgentSystemPrompt(provider.Issue{Number: 1, Title: "T"}, rc, "main", "make test", "", "")
+	if len(blocks) != 4 {
+		t.Fatalf("got %d blocks, want 4 (behavior, contract, environment, issue text) when no repo instructions exist", len(blocks))
 	}
 }
 
@@ -293,7 +363,10 @@ func TestIssueExecutorHandleRetriesAfterVerifyFailure(t *testing.T) {
 
 	verifyCalls := 0
 	task := &fakeTask{}
-	task.Files = map[string]string{"go.mod": "module acme/widgets"}
+	task.Files = map[string]string{
+		"go.mod":    "module acme/widgets",
+		"CLAUDE.md": "This repo is a Go module; run go test ./... to verify.",
+	}
 	task.BashFn = func(command string) (string, error) {
 		switch {
 		case command == "git ls-remote --heads origin 'wright/issue-11'":
@@ -374,5 +447,15 @@ func TestIssueExecutorHandleRetriesAfterVerifyFailure(t *testing.T) {
 	}
 	if !foundFeedback {
 		t.Fatalf("second LLM request should include verification feedback, got %+v", llmFake.Requests[1].Messages)
+	}
+
+	foundRepoInstructions := false
+	for _, sb := range llmFake.Requests[0].System {
+		if strings.Contains(sb.Text, "CLAUDE.md") && strings.Contains(sb.Text, "run go test ./... to verify") {
+			foundRepoInstructions = true
+		}
+	}
+	if !foundRepoInstructions {
+		t.Fatalf("first LLM request should include CLAUDE.md repo instructions, got %+v", llmFake.Requests[0].System)
 	}
 }
