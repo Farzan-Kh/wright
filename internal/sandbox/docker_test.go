@@ -17,7 +17,7 @@ func TestDockerTaskToolExec(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	o, err := NewDocker(retry.Config{})
+	o, err := NewDocker(retry.Config{}, nil)
 	if err != nil {
 		t.Skipf("docker unavailable: %v", err)
 	}

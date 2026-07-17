@@ -48,7 +48,7 @@ func newRunCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			sb, err := sandbox.NewDocker(rc.Retry.ToRetryConfig())
+			sb, err := sandbox.NewDocker(rc.Retry.ToRetryConfig(), logging.FromContext(cmd.Context()))
 			if err != nil {
 				return err
 			}

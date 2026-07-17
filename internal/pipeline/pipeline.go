@@ -10,6 +10,7 @@ import (
 
 	"github.com/farzan-kh/wright/internal/cost"
 	"github.com/farzan-kh/wright/internal/gate"
+	"github.com/farzan-kh/wright/internal/logging"
 	"github.com/farzan-kh/wright/internal/poller"
 	"github.com/farzan-kh/wright/internal/provider"
 )
@@ -54,12 +55,18 @@ type IssueReport struct {
 }
 
 func (p *Pipeline) RunOnce(ctx context.Context) ([]IssueReport, error) {
+	l := logging.FromContext(ctx)
 	issues, err := p.Poller.Once(ctx)
 	if err != nil {
+		l.Error("pipeline: poll failed", "error", err.Error())
 		return nil, err
 	}
+	l.Debug("pipeline: poll ok", "count", len(issues))
+
 	reports := make([]IssueReport, 0, len(issues))
 	for _, iss := range issues {
+		il := l.With("issue", iss.Number)
+		il.Debug("pipeline: issue picked up")
 		rep := IssueReport{IssueNumber: iss.Number}
 		total := cost.NewAccumulator()
 
@@ -69,6 +76,7 @@ func (p *Pipeline) RunOnce(ctx context.Context) ([]IssueReport, error) {
 			rep.Status = "error"
 			rep.Detail = "gate: " + err.Error()
 			rep.Cost = total.Summary()
+			il.Error("pipeline: issue outcome", "status", rep.Status, "detail", rep.Detail)
 			reports = append(reports, rep)
 			continue
 		}
@@ -81,6 +89,7 @@ func (p *Pipeline) RunOnce(ctx context.Context) ([]IssueReport, error) {
 			_ = p.Provider.CommentOnIssue(ctx, p.Repo, iss.Number, "Wright couldn't start yet because this issue is missing details:\n\n"+rep.Detail)
 			_ = p.Provider.RemoveIssueLabel(ctx, p.Repo, iss.Number, p.TriggerLabel)
 			rep.Cost = total.Summary()
+			il.Info("pipeline: issue outcome", "status", rep.Status, "detail", rep.Detail)
 			reports = append(reports, rep)
 			continue
 		}
@@ -89,10 +98,12 @@ func (p *Pipeline) RunOnce(ctx context.Context) ([]IssueReport, error) {
 			rep.Status = "ready"
 			rep.Detail = "gate passed; execution pipeline not configured"
 			rep.Cost = total.Summary()
+			il.Info("pipeline: issue outcome", "status", rep.Status, "detail", rep.Detail)
 			reports = append(reports, rep)
 			continue
 		}
 
+		il.Debug("pipeline: gate passed, starting execution")
 		execSummary, err := p.OnReady(ctx, iss)
 		rep.Cost = mergeCost(total.Summary(), execSummary)
 		if err != nil {
@@ -100,6 +111,7 @@ func (p *Pipeline) RunOnce(ctx context.Context) ([]IssueReport, error) {
 			if errors.As(err, &skip) {
 				rep.Status = "skipped"
 				rep.Detail = skip.Error()
+				il.Info("pipeline: issue outcome", "status", rep.Status, "detail", rep.Detail)
 				reports = append(reports, rep)
 				continue
 			}
@@ -109,9 +121,11 @@ func (p *Pipeline) RunOnce(ctx context.Context) ([]IssueReport, error) {
 			if strings.TrimSpace(p.NeedsHumanLabel) != "" {
 				_ = p.Provider.AddIssueLabel(ctx, p.Repo, iss.Number, p.NeedsHumanLabel)
 			}
+			il.Error("pipeline: issue outcome", "status", rep.Status, "detail", rep.Detail)
 		} else {
 			rep.Status = "completed"
 			rep.Detail = "issue processed"
+			il.Info("pipeline: issue outcome", "status", rep.Status, "detail", rep.Detail)
 		}
 		reports = append(reports, rep)
 	}

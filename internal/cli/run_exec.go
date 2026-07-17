@@ -14,6 +14,7 @@ import (
 	"github.com/farzan-kh/wright/internal/config"
 	"github.com/farzan-kh/wright/internal/cost"
 	"github.com/farzan-kh/wright/internal/gitops"
+	"github.com/farzan-kh/wright/internal/logging"
 	"github.com/farzan-kh/wright/internal/pipeline"
 	"github.com/farzan-kh/wright/internal/provider"
 	"github.com/farzan-kh/wright/internal/sandbox"
@@ -30,6 +31,7 @@ type issueExecutor struct {
 }
 
 func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.Summary, error) {
+	l := logging.FromContext(ctx).With("issue", issue.Number)
 	zeroCost := cost.Summary{}
 	branchName := gitops.BranchName(issue.Number)
 
@@ -39,6 +41,7 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 	}
 	if existingPR != nil {
 		reason := fmt.Sprintf("idempotency: open PR already exists for %s (PR #%d %s)", branchName, existingPR.Number, existingPR.URL)
+		l.Info("executor: skipping issue", "reason", reason)
 		_ = e.Provider.CommentOnIssue(ctx, e.Repo, issue.Number, "Wright skipped this run because an open PR already exists for this issue branch:\n\n"+existingPR.URL)
 		return zeroCost, pipeline.NewSkipError(reason)
 	}
@@ -51,6 +54,7 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 		}
 		baseBranch = b
 	}
+	l.Debug("executor: base branch resolved", "base_branch", baseBranch)
 
 	remoteURL, err := repoRemoteURL(e.RepoConfig)
 	if err != nil {
@@ -61,6 +65,7 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 		return cost.Summary{}, fmt.Errorf("build authenticated remote url: %w", err)
 	}
 
+	l.Debug("executor: starting sandbox", "image", e.RepoConfig.Sandbox.Image)
 	task, err := e.Sandbox.Start(ctx, sandbox.TaskSpec{
 		Image:      e.RepoConfig.Sandbox.Image,
 		Workdir:    e.RepoConfig.Sandbox.Workdir,
@@ -69,8 +74,10 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 		BaseBranch: baseBranch,
 	})
 	if err != nil {
+		l.Error("executor: sandbox start failed", "error", err.Error())
 		return cost.Summary{}, err
 	}
+	l.Debug("executor: sandbox ready")
 	defer func() {
 		_ = task.Close(context.Background())
 	}()
@@ -81,6 +88,7 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 	}
 	if branchExists {
 		reason := fmt.Sprintf("idempotency: branch %s already exists", branchName)
+		l.Info("executor: skipping issue", "reason", reason)
 		_ = e.Provider.CommentOnIssue(ctx, e.Repo, issue.Number, "Wright skipped this run because branch `"+branchName+"` already exists. If you want a retry, close/delete existing artifacts and re-apply the label.")
 		return zeroCost, pipeline.NewSkipError(reason)
 	}
@@ -116,23 +124,29 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 		if cfg.MaxTurns > 0 {
 			remainingTurns := cfg.MaxTurns - totalCost.Turns
 			if remainingTurns <= 0 {
+				l.Error("executor: turn budget exhausted", "max_turns", runner.Cfg.MaxTurns)
 				return totalCost, agent.ErrTurnLimit
 			}
 			cfg.MaxTurns = remainingTurns
 		}
 		runner.Cfg = cfg
 
+		l.Debug("executor: agent run started", "attempt", attempt, "remaining_turns", cfg.MaxTurns)
 		runResult, runErr := runner.Run(ctx, agent.RunRequest{System: systemPrompt, History: history, Tools: tools})
 		totalCost = mergeCostSummary(totalCost, runResult.UsageAndCost)
 		if runErr != nil {
+			l.Error("executor: agent run failed", "attempt", attempt, "error", runErr.Error())
 			return totalCost, runErr
 		}
 		history = runResult.History
+		l.Debug("executor: agent run ok", "attempt", attempt, "stop_reason", runResult.StopReason, "turns", totalCost.Turns)
 
 		verifyOut, err = task.Bash(ctx, verifyCmd)
 		if err == nil {
+			l.Debug("executor: verify ok", "attempt", attempt, "command", verifyCmd)
 			break
 		}
+		l.Info("executor: verify failed", "attempt", attempt, "command", verifyCmd, "error", err.Error())
 		if attempt == maxVerifyAttempts {
 			return totalCost, fmt.Errorf("verify failed after %d attempt(s) (%s): %w\n\n%s", attempt, verifyCmd, err, truncate(verifyOut, 8_000))
 		}
@@ -163,6 +177,7 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 	if err != nil {
 		return totalCost, err
 	}
+	l.Info("executor: PR opened", "pr", pr.Number, "url", pr.URL)
 
 	_ = e.Provider.CommentOnIssue(ctx, e.Repo, issue.Number,
 		fmt.Sprintf("Wright opened PR #%d: %s", pr.Number, pr.URL))

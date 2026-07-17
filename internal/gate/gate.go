@@ -13,6 +13,7 @@ import (
 
 	"github.com/farzan-kh/wright/internal/agent/llm"
 	"github.com/farzan-kh/wright/internal/cost"
+	"github.com/farzan-kh/wright/internal/logging"
 	"github.com/farzan-kh/wright/internal/provider"
 )
 
@@ -75,6 +76,19 @@ func (g *Gate) Check(ctx context.Context, issue provider.Issue) (Verdict, error)
 
 // CheckWithUsage runs issue triage and also returns token usage for cost accounting.
 func (g *Gate) CheckWithUsage(ctx context.Context, issue provider.Issue) (Verdict, cost.Usage, error) {
+	l := logging.FromContext(ctx).With("issue", issue.Number)
+	l.Debug("gate check started", "has_provider", g.Provider != nil)
+
+	v, usage, err := g.checkWithUsage(ctx, issue)
+	if err != nil {
+		l.Error("gate check failed", "error", err.Error())
+	} else {
+		l.Debug("gate verdict", "ready", v.Ready, "missing", v.Missing)
+	}
+	return v, usage, err
+}
+
+func (g *Gate) checkWithUsage(ctx context.Context, issue provider.Issue) (Verdict, cost.Usage, error) {
 	userPrompt := "Title: " + issue.Title + "\n\nBody:\n" + issue.Body
 	if comments := issue.FormatComments(); comments != "" {
 		userPrompt += "\n\nComments:\n" + comments
