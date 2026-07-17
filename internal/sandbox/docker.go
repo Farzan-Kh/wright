@@ -26,6 +26,15 @@ import (
 // safe without a nil check.
 var discardLog = slog.New(slog.NewTextHandler(io.Discard, nil))
 
+// Setup-phase steps (image pull, provisioning, mkdir, git config, clone) are
+// internal bookkeeping, not agent work, so each one is bounded: a wedged
+// Docker daemon call or a stalled `git clone` fails fast with a clear error
+// instead of blocking the pipeline forever with no visible progress.
+const (
+	setupStepTimeout = 2 * time.Minute
+	cloneStepTimeout = 5 * time.Minute
+)
+
 // Docker orchestrates task containers through the Docker Engine API.
 type Docker struct {
 	cli   *client.Client
@@ -138,7 +147,10 @@ func (d *Docker) Start(ctx context.Context, spec TaskSpec) (Task, error) {
 		}
 	}()
 
-	if err := d.cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+	startCtx, cancelStart := context.WithTimeout(ctx, setupStepTimeout)
+	err = d.cli.ContainerStart(startCtx, resp.ID, container.StartOptions{})
+	cancelStart()
+	if err != nil {
 		err = fmt.Errorf("sandbox: start container %s: %w", resp.ID, err)
 		stepEnd(l, startAll, err)
 		return nil, err
@@ -149,18 +161,18 @@ func (d *Docker) Start(ctx context.Context, spec TaskSpec) (Task, error) {
 	// assuming either exists silently fail. Best-effort provision them on
 	// Alpine-based images only (guarded by `command -v apk`) so custom,
 	// non-Alpine sandbox.image values from repo config are left untouched.
-	if _, err := task.runShell(ctx, "/", provisionCmd); err != nil {
+	if _, err := task.runShellTimeout(ctx, setupStepTimeout, "/", provisionCmd); err != nil {
 		err = fmt.Errorf("sandbox: provision base tools: %w", err)
 		stepEnd(l, startAll, err)
 		return nil, err
 	}
 
-	if _, err := task.runShell(ctx, "/", "mkdir -p "+shellQuote(workdir)); err != nil {
+	if _, err := task.runShellTimeout(ctx, setupStepTimeout, "/", "mkdir -p "+shellQuote(workdir)); err != nil {
 		err = fmt.Errorf("sandbox: create workdir: %w", err)
 		stepEnd(l, startAll, err)
 		return nil, err
 	}
-	if _, err := task.runShell(ctx, workdir, "mkdir -p "+shellQuote(task.repoDir)); err != nil {
+	if _, err := task.runShellTimeout(ctx, setupStepTimeout, workdir, "mkdir -p "+shellQuote(task.repoDir)); err != nil {
 		err = fmt.Errorf("sandbox: create repo dir: %w", err)
 		stepEnd(l, startAll, err)
 		return nil, err
@@ -179,7 +191,7 @@ func (d *Docker) Start(ctx context.Context, spec TaskSpec) (Task, error) {
 		attempt := 0
 		err := retry.Do(ctx, d.retry, nil, func(ctx context.Context) error {
 			attempt++
-			_, err := task.runShell(ctx, workdir, cloneCmd)
+			_, err := task.runShellTimeout(ctx, cloneStepTimeout, workdir, cloneCmd)
 			if err != nil {
 				cs.Warn("sandbox clone attempt failed", "attempt", attempt, "error", err.Error())
 			}
@@ -193,12 +205,12 @@ func (d *Docker) Start(ctx context.Context, spec TaskSpec) (Task, error) {
 		}
 	}
 
-	if _, err := task.runShell(ctx, task.repoDir, "git config user.name "+shellQuote(gitUser)); err != nil {
+	if _, err := task.runShellTimeout(ctx, setupStepTimeout, task.repoDir, "git config user.name "+shellQuote(gitUser)); err != nil {
 		err = fmt.Errorf("sandbox: git user.name: %w", err)
 		stepEnd(l, startAll, err)
 		return nil, err
 	}
-	if _, err := task.runShell(ctx, task.repoDir, "git config user.email "+shellQuote(gitEmail)); err != nil {
+	if _, err := task.runShellTimeout(ctx, setupStepTimeout, task.repoDir, "git config user.email "+shellQuote(gitEmail)); err != nil {
 		err = fmt.Errorf("sandbox: git user.email: %w", err)
 		stepEnd(l, startAll, err)
 		return nil, err
@@ -239,8 +251,15 @@ func (d *Docker) pullImage(ctx context.Context, imageName string) error {
 	attempt := 0
 	err := retry.Do(ctx, d.retry, nil, func(ctx context.Context) error {
 		attempt++
-		err := pullImageOnce(ctx, d.cli, imageName)
+		stepCtx, cancel := context.WithTimeout(ctx, setupStepTimeout)
+		defer cancel()
+		err := pullImageOnce(stepCtx, d.cli, imageName)
 		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+				// Our own bound expired, not the outer ctx (see the matching
+				// comment on runShellTimeout) — keep the error retryable.
+				err = fmt.Errorf("sandbox: pull image %q timed out after %s", imageName, setupStepTimeout)
+			}
 			l.Warn("sandbox pull attempt failed", "attempt", attempt, "error", err.Error())
 			return err
 		}
@@ -417,6 +436,30 @@ func (t *dockerTask) runShell(ctx context.Context, workdir, command string) (str
 	return out, nil
 }
 
+// runShellTimeout is runShell bounded by timeout, for internal setup steps
+// (provisioning, clone, git config) that must fail fast rather than block the
+// pipeline indefinitely if the container or the network wedges.
+func (t *dockerTask) runShellTimeout(ctx context.Context, timeout time.Duration, workdir, command string) (string, error) {
+	stepCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	out, err := t.runShell(stepCtx, workdir, command)
+	if err != nil && errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+		// stepCtx's own bound expired while the caller's ctx is still live:
+		// this is our timeout, not a real cancellation. Callers that retry
+		// around this (e.g. the clone step) key off context.DeadlineExceeded
+		// to mean "the outer context is dead, stop retrying" — report a
+		// plain error instead so a single wedged attempt doesn't cancel the
+		// rest of the retry budget.
+		return out, fmt.Errorf("sandbox: step %q timed out after %s", command, timeout)
+	}
+	return out, err
+}
+
+// exec runs cmd in the container and returns its combined output and exit
+// code. The output read is raced against ctx so a command that never returns
+// (e.g. a wedged network call) surfaces as a clear timeout/cancellation error
+// instead of blocking the caller forever; closing attach unblocks the reader
+// goroutine, which is left to drain into the buffered channel on its own.
 func (t *dockerTask) exec(ctx context.Context, workdir string, cmd []string) (string, int, error) {
 	l := t.log
 	if l == nil {
@@ -444,14 +487,34 @@ func (t *dockerTask) exec(ctx context.Context, workdir string, cmd []string) (st
 		l.Error("sandbox exec failed", "phase", "attach", "duration_ms", time.Since(start).Milliseconds(), "error", err.Error())
 		return "", 0, err
 	}
-	defer attach.Close()
 
-	outBytes, err := io.ReadAll(attach.Reader)
-	if err != nil {
-		err = fmt.Errorf("sandbox: read exec output: %w", err)
-		l.Error("sandbox exec failed", "phase", "read", "duration_ms", time.Since(start).Milliseconds(), "error", err.Error())
-		return "", 0, err
+	type readResult struct {
+		out []byte
+		err error
 	}
+	done := make(chan readResult, 1)
+	go func() {
+		out, err := io.ReadAll(attach.Reader)
+		done <- readResult{out, err}
+	}()
+
+	var outBytes []byte
+	select {
+	case <-ctx.Done():
+		attach.Close()
+		err := fmt.Errorf("sandbox: exec %q: %w", strings.Join(cmd, " "), ctx.Err())
+		l.Error("sandbox exec timed out", "duration_ms", time.Since(start).Milliseconds(), "error", err.Error())
+		return "", 0, err
+	case res := <-done:
+		attach.Close()
+		if res.err != nil {
+			err := fmt.Errorf("sandbox: read exec output: %w", res.err)
+			l.Error("sandbox exec failed", "phase", "read", "duration_ms", time.Since(start).Milliseconds(), "error", err.Error())
+			return "", 0, err
+		}
+		outBytes = res.out
+	}
+
 	info, err := t.cli.ContainerExecInspect(ctx, execResp.ID)
 	if err != nil {
 		err = fmt.Errorf("sandbox: inspect exec: %w", err)
