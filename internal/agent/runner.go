@@ -20,6 +20,15 @@ type Config struct {
 	Model       string
 	MaxTokens   int
 	MaxTurns    int
+	// MaxTotalTokens caps the total LLM tokens (input + output + cache)
+	// across all turns. 0 = unlimited.
+	MaxTotalTokens int64
+	// MaxUSD caps the total USD cost across all turns. 0 = not enforced.
+	// When > 0, RateTable must have entries for Cfg.Model.
+	MaxUSD float64
+	// RateTable maps model id -> per-model pricing for USD tracking.
+	// Nil disables USD tracking.
+	RateTable   cost.RateTable
 	ThinkEffort string
 }
 
@@ -50,16 +59,33 @@ type RunResult struct {
 
 // Run executes the manual loop until end_turn, a hard limit, or an error.
 func (r *Runner) Run(ctx context.Context, req RunRequest) (RunResult, error) {
-	acc := cost.NewAccumulator(nil)
+	acc := cost.NewAccumulator(r.Cfg.RateTable)
 	history := append([]llm.Message(nil), req.History...)
 	result := RunResult{History: history}
 
 	for {
-		if r.Cfg.MaxTurns > 0 && acc.Summary().Turns >= r.Cfg.MaxTurns {
+		s := acc.Summary()
+		if r.Cfg.MaxTurns > 0 && s.Turns >= r.Cfg.MaxTurns {
 			result.BudgetExceeded = true
 			result.BudgetReason = "max_turns"
-			result.UsageAndCost = acc.Summary()
+			result.UsageAndCost = s
 			return result, ErrTurnLimit
+		}
+		if r.Cfg.MaxTotalTokens > 0 {
+			totalTokens := s.Usage.InputTokens + s.Usage.OutputTokens +
+				s.Usage.CacheCreationInputTokens + s.Usage.CacheReadInputTokens
+			if totalTokens >= r.Cfg.MaxTotalTokens {
+				result.BudgetExceeded = true
+				result.BudgetReason = "max_total_tokens"
+				result.UsageAndCost = s
+				return result, fmt.Errorf("agent: max total tokens reached (%d >= %d)", totalTokens, r.Cfg.MaxTotalTokens)
+			}
+		}
+		if r.Cfg.MaxUSD > 0 && s.USDKnown && s.USD >= r.Cfg.MaxUSD {
+			result.BudgetExceeded = true
+			result.BudgetReason = "max_usd"
+			result.UsageAndCost = s
+			return result, fmt.Errorf("agent: max USD reached ($%.4f >= $%.4f)", s.USD, r.Cfg.MaxUSD)
 		}
 
 		effort := r.Cfg.ThinkEffort
@@ -80,7 +106,7 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 		}
 
 		acc.Add(r.Cfg.Model, resp.Usage)
-		s := acc.Summary()
+		s = acc.Summary()
 
 		// Record the turn before any budget decision: the model's output (and its
 		// signed thinking blocks) belongs in history regardless of cost, and a turn

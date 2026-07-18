@@ -68,14 +68,12 @@ func (p *Pipeline) RunOnce(ctx context.Context) ([]IssueReport, error) {
 		il := l.With("issue", iss.Number)
 		il.Debug("pipeline: issue picked up")
 		rep := IssueReport{IssueNumber: iss.Number}
-		total := cost.NewAccumulator(nil)
 
-		v, gateUsage, err := p.Gate.CheckWithUsage(ctx, iss)
-		total.Add("", gateUsage)
+		v, gateSummary, err := p.Gate.CheckWithUsage(ctx, iss)
 		if err != nil {
 			rep.Status = "error"
 			rep.Detail = "gate: " + err.Error()
-			rep.Cost = total.Summary()
+			rep.Cost = gateSummary
 			il.Error("pipeline: issue outcome", "status", rep.Status, "detail", rep.Detail)
 			reports = append(reports, rep)
 			continue
@@ -88,7 +86,7 @@ func (p *Pipeline) RunOnce(ctx context.Context) ([]IssueReport, error) {
 			}
 			_ = p.Provider.CommentOnIssue(ctx, p.Repo, iss.Number, "Wright couldn't start yet because this issue is missing details:\n\n"+rep.Detail)
 			_ = p.Provider.RemoveIssueLabel(ctx, p.Repo, iss.Number, p.TriggerLabel)
-			rep.Cost = total.Summary()
+			rep.Cost = gateSummary
 			il.Info("pipeline: issue outcome", "status", rep.Status, "detail", rep.Detail)
 			reports = append(reports, rep)
 			continue
@@ -97,7 +95,7 @@ func (p *Pipeline) RunOnce(ctx context.Context) ([]IssueReport, error) {
 		if p.OnReady == nil {
 			rep.Status = "ready"
 			rep.Detail = "gate passed; execution pipeline not configured"
-			rep.Cost = total.Summary()
+			rep.Cost = gateSummary
 			il.Info("pipeline: issue outcome", "status", rep.Status, "detail", rep.Detail)
 			reports = append(reports, rep)
 			continue
@@ -105,9 +103,8 @@ func (p *Pipeline) RunOnce(ctx context.Context) ([]IssueReport, error) {
 
 		il.Debug("pipeline: gate passed, starting execution")
 		execSummary, err := p.OnReady(ctx, iss)
-		totalS := total.Summary()
-		totalS.Merge(execSummary)
-		rep.Cost = totalS
+		gateSummary.Merge(execSummary)
+		rep.Cost = gateSummary
 		if err != nil {
 			var skip *SkipError
 			if errors.As(err, &skip) {

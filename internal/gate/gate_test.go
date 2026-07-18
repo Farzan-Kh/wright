@@ -70,15 +70,15 @@ func TestCheckWithUsage(t *testing.T) {
 	}}}
 
 	g := &Gate{LLM: f, Model: "claude-haiku-4-5", MaxTokens: 256}
-	v, usage, err := g.CheckWithUsage(context.Background(), provider.Issue{Title: "Fix bug", Body: ""})
+	v, s, err := g.CheckWithUsage(context.Background(), provider.Issue{Title: "Fix bug", Body: ""})
 	if err != nil {
 		t.Fatalf("CheckWithUsage: %v", err)
 	}
 	if !v.Ready {
 		t.Fatalf("verdict = %+v, want ready=true", v)
 	}
-	if usage.InputTokens != 123 || usage.OutputTokens != 45 {
-		t.Fatalf("usage = %+v, want input=123 output=45", usage)
+	if s.Usage.InputTokens != 123 || s.Usage.OutputTokens != 45 {
+		t.Fatalf("summary = %+v, want usage input=123 output=45", s)
 	}
 }
 

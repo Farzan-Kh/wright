@@ -42,6 +42,10 @@ type issueExecutor struct {
 	// RepoConfig.Stacking) so they can be retargeted once that dependency
 	// merges. Nil when stacking is disabled.
 	Stack stack.Store
+	// RateTable maps model id -> per-model pricing for USD tracking. Built
+	// once per repo from rc.LLM.ToRateTable() and passed to both the Gate
+	// and agent runner.
+	RateTable cost.RateTable
 }
 
 // stackedDependency is a referenced issue that already has an open Wright PR
@@ -157,6 +161,9 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 			Model:       e.RepoConfig.LLM.AgentModel,
 			MaxTokens:   8192,
 			MaxTurns:    e.RepoConfig.Budget.MaxTurns,
+			MaxTotalTokens: e.RepoConfig.Budget.MaxTotalTokens,
+			MaxUSD:      e.RepoConfig.Budget.MaxUSD,
+			RateTable:   e.RateTable,
 			ThinkEffort: e.RepoConfig.LLM.Effort,
 		},
 	}
@@ -228,6 +235,26 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 					return totalCost, agent.ErrTurnLimit
 				}
 				cfg.MaxTurns = remainingTurns
+			}
+			if cfg.MaxTotalTokens > 0 {
+				totalTokens := totalCost.Usage.InputTokens + totalCost.Usage.OutputTokens +
+					totalCost.Usage.CacheCreationInputTokens + totalCost.Usage.CacheReadInputTokens
+				remainingTokens := cfg.MaxTotalTokens - totalTokens
+				if remainingTokens <= 0 {
+					l.Error("executor: token budget exhausted", "max_total_tokens", runner.Cfg.MaxTotalTokens)
+					e.cacheIncomplete(ctx, l, task, repoKey, issue, branchName, baseBranch, systemPrompt, history, totalCost, verifyCmd, verifyOut, "max total tokens reached")
+					return totalCost, fmt.Errorf("max total tokens exhausted (%d >= %d)", totalTokens, runner.Cfg.MaxTotalTokens)
+				}
+				cfg.MaxTotalTokens = remainingTokens
+			}
+			if cfg.MaxUSD > 0 && totalCost.USDKnown {
+				remainingUSD := cfg.MaxUSD - totalCost.USD
+				if remainingUSD <= 0 {
+					l.Error("executor: USD budget exhausted", "max_usd", runner.Cfg.MaxUSD, "usd", totalCost.USD)
+					e.cacheIncomplete(ctx, l, task, repoKey, issue, branchName, baseBranch, systemPrompt, history, totalCost, verifyCmd, verifyOut, "max USD reached")
+					return totalCost, fmt.Errorf("max USD exhausted ($%.4f >= $%.4f)", totalCost.USD, runner.Cfg.MaxUSD)
+				}
+				cfg.MaxUSD = remainingUSD
 			}
 			runner.Cfg = cfg
 
