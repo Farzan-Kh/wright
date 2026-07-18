@@ -71,7 +71,9 @@ func (rc *RepoConfig) validate(idx int) []error {
 	if rc.Budget.MaxTotalTokens < 0 {
 		errs = append(errs, p("budget.max_total_tokens must be >= 0, got %d", rc.Budget.MaxTotalTokens))
 	}
-	if rc.Budget.MaxUSD < 0 {
+	if rc.Budget.MaxUSD*0 != 0 {
+		errs = append(errs, p("budget.max_usd must be a finite number, got %v", rc.Budget.MaxUSD))
+	} else if rc.Budget.MaxUSD < 0 {
 		errs = append(errs, p("budget.max_usd must be >= 0, got %v", rc.Budget.MaxUSD))
 	}
 
