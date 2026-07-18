@@ -30,6 +30,7 @@ func (c *Client) FindOpenPullRequestByHead(ctx context.Context, repo provider.Re
 		URL:        mr.WebURL,
 		HeadBranch: mr.SourceBranch,
 		BaseBranch: mr.TargetBranch,
+		State:      "open",
 	}, nil
 }
 
@@ -64,7 +65,37 @@ func (c *Client) OpenPullRequest(ctx context.Context, repo provider.Repo, spec p
 		URL:        mr.WebURL,
 		HeadBranch: mr.SourceBranch,
 		BaseBranch: mr.TargetBranch,
+		State:      "open",
 	}, nil
+}
+
+// GetPullRequest fetches a merge request by number (IID) regardless of state.
+func (c *Client) GetPullRequest(ctx context.Context, repo provider.Repo, number int) (*provider.PullRequest, error) {
+	mr, _, err := c.gl.MergeRequests.GetMergeRequest(pid(repo), int64(number), nil, ctxOpt(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("gitlab: get merge request !%d in %s: %w", number, repo.FullPath, classify(err))
+	}
+	state := mr.State
+	if state == "opened" {
+		state = "open"
+	}
+	return &provider.PullRequest{
+		Number:     int(mr.IID),
+		URL:        mr.WebURL,
+		HeadBranch: mr.SourceBranch,
+		BaseBranch: mr.TargetBranch,
+		State:      state,
+	}, nil
+}
+
+// UpdatePullRequestBase retargets the merge request onto a new target branch.
+func (c *Client) UpdatePullRequestBase(ctx context.Context, repo provider.Repo, number int, baseBranch string) error {
+	if _, _, err := c.gl.MergeRequests.UpdateMergeRequest(pid(repo), int64(number), &gl.UpdateMergeRequestOptions{
+		TargetBranch: gl.Ptr(baseBranch),
+	}, ctxOpt(ctx)); err != nil {
+		return fmt.Errorf("gitlab: update merge request !%d base to %q in %s: %w", number, baseBranch, repo.FullPath, classify(err))
+	}
+	return nil
 }
 
 // CommentOnPullRequest posts body as a note on the merge request. GitLab keeps

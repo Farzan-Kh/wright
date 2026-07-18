@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"path/filepath"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -22,6 +23,7 @@ import (
 	"github.com/farzan-kh/wright/internal/pipeline"
 	"github.com/farzan-kh/wright/internal/poller"
 	"github.com/farzan-kh/wright/internal/sandbox"
+	"github.com/farzan-kh/wright/internal/stack"
 )
 
 func newRunCmd() *cobra.Command {
@@ -53,6 +55,11 @@ func newRunCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			var stackStore stack.Store
+			if rc.Stacking.Enabled {
+				stackStore = &stack.FileStore{Dir: filepath.Join(cfg.Cache.Dir, "stack")}
+			}
+
 			exec := &issueExecutor{
 				Provider:      p,
 				Repo:          repo,
@@ -61,6 +68,7 @@ func newRunCmd() *cobra.Command {
 				LLM:           llmProvider,
 				Sandbox:       sb,
 				Cache:         &cache.FileStore{Dir: cfg.Cache.Dir},
+				Stack:         stackStore,
 			}
 
 			pl := &pipeline.Pipeline{
@@ -79,6 +87,13 @@ func newRunCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+
+			if stackStore != nil {
+				if err := stack.Reconcile(cmd.Context(), p, repo, stackStore); err != nil {
+					logging.FromContext(cmd.Context()).Error("stack: reconcile failed", "error", err.Error())
+				}
+			}
+
 			printRunReports(cmd.OutOrStdout(), rc, reports)
 			return nil
 		},

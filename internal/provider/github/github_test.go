@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -517,6 +518,55 @@ func TestClosePullRequest(t *testing.T) {
 	}
 	if body["state"] != "closed" {
 		t.Errorf("state = %v, want closed", body["state"])
+	}
+}
+
+func TestGetPullRequest(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /repos/acme/widgets/pulls/7", func(w http.ResponseWriter, r *http.Request) {
+		mustWrite(w, []byte(`{"number":7,"html_url":"https://github.com/acme/widgets/pull/7","head":{"ref":"wright/x"},"base":{"ref":"main"},"state":"closed","merged":true}`))
+	})
+	c := newTestClient(t, mux)
+	pr, err := c.GetPullRequest(context.Background(), testRepo, 7)
+	if err != nil {
+		t.Fatalf("GetPullRequest: %v", err)
+	}
+	if pr.State != "merged" {
+		t.Errorf("state = %q, want merged", pr.State)
+	}
+}
+
+func TestGetPullRequestClosedUnmerged(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /repos/acme/widgets/pulls/7", func(w http.ResponseWriter, r *http.Request) {
+		mustWrite(w, []byte(`{"number":7,"head":{"ref":"wright/x"},"base":{"ref":"main"},"state":"closed","merged":false}`))
+	})
+	c := newTestClient(t, mux)
+	pr, err := c.GetPullRequest(context.Background(), testRepo, 7)
+	if err != nil {
+		t.Fatalf("GetPullRequest: %v", err)
+	}
+	if pr.State != "closed" {
+		t.Errorf("state = %q, want closed", pr.State)
+	}
+}
+
+func TestUpdatePullRequestBase(t *testing.T) {
+	var body map[string]any
+	base := "main"
+	mux := http.NewServeMux()
+	mux.HandleFunc("PATCH /repos/acme/widgets/pulls/7", func(w http.ResponseWriter, r *http.Request) {
+		body = decodeBody(t, r)
+		base = body["base"].(string)
+		mustWrite(w, []byte(`{"number":7,"head":{"ref":"wright/x"}}`))
+	})
+	mux.HandleFunc("GET /repos/acme/widgets/pulls/7", func(w http.ResponseWriter, r *http.Request) {
+		mustWrite(w, fmt.Appendf(nil, `{"number":7,"head":{"ref":"wright/x"},"base":{"ref":%q},"state":"open"}`, base))
+	})
+	c := newTestClient(t, mux)
+	providertest.AssertPullRequestBaseRoundTrip(t, c, testRepo, 7, "release")
+	if body["base"] != "release" {
+		t.Errorf("base = %v, want release", body["base"])
 	}
 }
 

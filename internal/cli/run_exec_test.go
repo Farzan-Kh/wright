@@ -17,6 +17,7 @@ import (
 	"github.com/farzan-kh/wright/internal/pipeline"
 	"github.com/farzan-kh/wright/internal/provider"
 	"github.com/farzan-kh/wright/internal/sandbox"
+	"github.com/farzan-kh/wright/internal/stack"
 )
 
 func TestBuildLLMRejectsOAuthInPhase1(t *testing.T) {
@@ -240,11 +241,16 @@ func TestBuildAgentSystemPromptNoRepoInstructionsOmitsBlock(t *testing.T) {
 }
 
 type fakeExecProvider struct {
-	findPR            *provider.PullRequest
-	defaultBranch     string
-	openPRCount       int
-	openPRLastSpec    provider.PullRequestSpec
-	openPRErr         error
+	findPR         *provider.PullRequest
+	defaultBranch  string
+	openPRCount    int
+	openPRLastSpec provider.PullRequestSpec
+	openPRErr      error
+	// findPRByBranch overrides findPR for specific head branches, so a test
+	// can distinguish the current issue's own branch (idempotency check)
+	// from a dependency's branch (stacking lookup). A branch absent here
+	// falls back to findPR.
+	findPRByBranch    map[string]*provider.PullRequest
 	commentIssueCalls []string
 }
 
@@ -288,7 +294,10 @@ func (f *fakeExecProvider) DeleteBranch(context.Context, provider.Repo, string) 
 func (f *fakeExecProvider) PushCommits(context.Context, provider.Repo, string, []provider.Commit) (string, error) {
 	return "", nil
 }
-func (f *fakeExecProvider) FindOpenPullRequestByHead(context.Context, provider.Repo, string) (*provider.PullRequest, error) {
+func (f *fakeExecProvider) FindOpenPullRequestByHead(_ context.Context, _ provider.Repo, headBranch string) (*provider.PullRequest, error) {
+	if pr, ok := f.findPRByBranch[headBranch]; ok {
+		return pr, nil
+	}
 	return f.findPR, nil
 }
 func (f *fakeExecProvider) OpenPullRequest(_ context.Context, _ provider.Repo, spec provider.PullRequestSpec) (*provider.PullRequest, error) {
@@ -298,6 +307,12 @@ func (f *fakeExecProvider) OpenPullRequest(_ context.Context, _ provider.Repo, s
 		return nil, f.openPRErr
 	}
 	return &provider.PullRequest{Number: 77, URL: "https://example.com/pr/77", HeadBranch: spec.HeadBranch, BaseBranch: spec.BaseBranch}, nil
+}
+func (f *fakeExecProvider) GetPullRequest(context.Context, provider.Repo, int) (*provider.PullRequest, error) {
+	return nil, nil
+}
+func (f *fakeExecProvider) UpdatePullRequestBase(context.Context, provider.Repo, int, string) error {
+	return nil
 }
 func (f *fakeExecProvider) MergePullRequest(context.Context, provider.Repo, int, provider.MergeOptions) error {
 	return nil
@@ -463,6 +478,95 @@ func TestIssueExecutorHandleRetriesAfterVerifyFailure(t *testing.T) {
 	}
 	if !foundRepoInstructions {
 		t.Fatalf("first LLM request should include CLAUDE.md repo instructions, got %+v", llmFake.Requests[0].System)
+	}
+}
+
+// TestIssueExecutorHandleStacksOnDependencyPR is the regression test for the
+// stacked-PR feature: issue #14 references #13, which already has an open
+// Wright PR (#40, branch wright/issue-13). With stacking enabled, Wright must
+// branch #14's work off wright/issue-13 instead of the repo's real base
+// branch, note the stacking relationship in the PR body, and register the
+// new PR with the stack store so it can be retargeted once #13 merges.
+func TestIssueExecutorHandleStacksOnDependencyPR(t *testing.T) {
+	fp := &fakeExecProvider{
+		defaultBranch: "main",
+		findPRByBranch: map[string]*provider.PullRequest{
+			"wright/issue-13": {Number: 40, URL: "https://example.com/pr/40", HeadBranch: "wright/issue-13", State: "open"},
+		},
+	}
+	llmFake := &llm.FakeProvider{Responses: []llm.MessageResponse{{
+		Message:    llm.Message{Role: "assistant", Content: []llm.ContentBlock{{Type: "text", Text: "done"}}},
+		StopReason: "end_turn",
+		Usage:      cost.Usage{InputTokens: 50, OutputTokens: 5},
+	}}}
+
+	task := &fakeTask{}
+	task.Files = map[string]string{"go.mod": "module acme/widgets"}
+	task.BashFn = func(command string) (string, error) {
+		switch {
+		case command == "git ls-remote --heads origin 'wright/issue-14'":
+			return "", nil
+		case command == "go test ./...":
+			return "ok\tacme/widgets\t0.02s", nil
+		case strings.HasPrefix(command, "git checkout -b "),
+			command == "git add -A",
+			strings.HasPrefix(command, "git commit -m "),
+			strings.HasPrefix(command, "git push "):
+			return "", nil
+		case command == "git diff --cached --shortstat":
+			return "1 file changed, 1 insertion(+)\n", nil
+		default:
+			return "", nil
+		}
+	}
+	orch := &fakeOrchestrator{task: task}
+
+	stackStore := &stack.FileStore{Dir: t.TempDir()}
+	exec := &issueExecutor{
+		Provider:      fp,
+		Repo:          provider.Repo{FullPath: "acme/widgets"},
+		ProviderToken: "provider-token",
+		LLM:           llmFake,
+		Sandbox:       orch,
+		Stack:         stackStore,
+		RepoConfig: &config.RepoConfig{
+			Provider: config.ProviderGitHub,
+			Repo:     "acme/widgets",
+			LLM: config.LLMConfig{
+				Auth:       "api_key",
+				AgentModel: "claude-sonnet-5",
+				Effort:     "high",
+			},
+			Budget:   config.BudgetConfig{MaxTurns: 10},
+			Stacking: config.StackingConfig{Enabled: true},
+		},
+	}
+
+	_, err := exec.Handle(context.Background(), provider.Issue{Number: 14, Title: "Use config", Body: "Requires #13."})
+	if err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+
+	if orch.lastSpec.BaseBranch != "wright/issue-13" {
+		t.Fatalf("sandbox base branch = %q, want wright/issue-13 (stacked)", orch.lastSpec.BaseBranch)
+	}
+	if fp.openPRLastSpec.BaseBranch != "wright/issue-13" {
+		t.Fatalf("PR base = %q, want wright/issue-13 (stacked)", fp.openPRLastSpec.BaseBranch)
+	}
+	if !strings.Contains(fp.openPRLastSpec.Body, "Stacked PR") || !strings.Contains(fp.openPRLastSpec.Body, "#13") {
+		t.Fatalf("PR body missing stacking note:\n%s", fp.openPRLastSpec.Body)
+	}
+
+	entries, err := stackStore.ListPending("acme/widgets")
+	if err != nil {
+		t.Fatalf("ListPending: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("stack entries = %+v, want 1", entries)
+	}
+	e := entries[0]
+	if e.DependsOnIssue != 13 || e.DependsOnPRNumber != 40 || e.RealBaseBranch != "main" {
+		t.Fatalf("stack entry = %+v, want depends on #13/PR40 with real base main", e)
 	}
 }
 

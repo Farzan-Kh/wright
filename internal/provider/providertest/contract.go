@@ -123,6 +123,30 @@ func findIssue(issues []provider.Issue, number int) (provider.Issue, bool) {
 	return provider.Issue{}, false
 }
 
+// AssertPullRequestBaseRoundTrip verifies UpdatePullRequestBase actually
+// retargets the pull request (observed through GetPullRequest) and that
+// calling it again with the same base branch is a harmless no-op, since
+// stack.Reconcile relies on that idempotency to be safely retried.
+func AssertPullRequestBaseRoundTrip(t testing.TB, p provider.Provider, repo provider.Repo, prNumber int, newBase string) {
+	t.Helper()
+	ctx := context.Background()
+
+	if err := p.UpdatePullRequestBase(ctx, repo, prNumber, newBase); err != nil {
+		t.Fatalf("UpdatePullRequestBase: %v", err)
+	}
+	pr, err := p.GetPullRequest(ctx, repo, prNumber)
+	if err != nil {
+		t.Fatalf("GetPullRequest: %v", err)
+	}
+	if pr.BaseBranch != newBase {
+		t.Fatalf("BaseBranch = %q, want %q", pr.BaseBranch, newBase)
+	}
+
+	if err := p.UpdatePullRequestBase(ctx, repo, prNumber, newBase); err != nil {
+		t.Fatalf("UpdatePullRequestBase (repeat, same base): %v", err)
+	}
+}
+
 // AssertErrorIs is errors.Is with a readable failure message.
 func AssertErrorIs(t testing.TB, got, want error) {
 	t.Helper()

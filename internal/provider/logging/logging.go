@@ -157,6 +157,24 @@ func (p *Provider) OpenPullRequest(ctx context.Context, repo provider.Repo, spec
 	return pr, err
 }
 
+func (p *Provider) GetPullRequest(ctx context.Context, repo provider.Repo, number int) (*provider.PullRequest, error) {
+	l, start := p.start("GetPullRequest", "repo", repo.FullPath, "pr", number)
+	pr, err := p.inner.GetPullRequest(ctx, repo, number)
+	if pr != nil {
+		end(l, start, err, "state", pr.State)
+	} else {
+		end(l, start, err)
+	}
+	return pr, err
+}
+
+func (p *Provider) UpdatePullRequestBase(ctx context.Context, repo provider.Repo, number int, baseBranch string) error {
+	l, start := p.start("UpdatePullRequestBase", "repo", repo.FullPath, "pr", number, "base_branch", baseBranch)
+	err := p.inner.UpdatePullRequestBase(ctx, repo, number, baseBranch)
+	end(l, start, err)
+	return err
+}
+
 func (p *Provider) MergePullRequest(ctx context.Context, repo provider.Repo, number int, opts provider.MergeOptions) error {
 	l, start := p.start("MergePullRequest", "repo", repo.FullPath, "pr", number, "method", string(opts.Method), "delete_branch", opts.DeleteBranch)
 	err := p.inner.MergePullRequest(ctx, repo, number, opts)

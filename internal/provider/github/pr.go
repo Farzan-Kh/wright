@@ -34,6 +34,7 @@ func (c *Client) FindOpenPullRequestByHead(ctx context.Context, repo provider.Re
 		URL:        pr.GetHTMLURL(),
 		HeadBranch: pr.GetHead().GetRef(),
 		BaseBranch: pr.GetBase().GetRef(),
+		State:      "open",
 	}, nil
 }
 
@@ -68,7 +69,45 @@ func (c *Client) OpenPullRequest(ctx context.Context, repo provider.Repo, spec p
 		URL:        pr.GetHTMLURL(),
 		HeadBranch: pr.GetHead().GetRef(),
 		BaseBranch: pr.GetBase().GetRef(),
+		State:      "open",
 	}, nil
+}
+
+// GetPullRequest fetches a pull request by number regardless of its state.
+func (c *Client) GetPullRequest(ctx context.Context, repo provider.Repo, number int) (*provider.PullRequest, error) {
+	owner, name, err := splitRepo(repo)
+	if err != nil {
+		return nil, err
+	}
+	pr, _, err := c.gh.PullRequests.Get(ctx, owner, name, number)
+	if err != nil {
+		return nil, fmt.Errorf("github: get pull request #%d in %s: %w", number, repo.FullPath, classify(err))
+	}
+	state := pr.GetState()
+	if pr.GetMerged() {
+		state = "merged"
+	}
+	return &provider.PullRequest{
+		Number:     pr.GetNumber(),
+		URL:        pr.GetHTMLURL(),
+		HeadBranch: pr.GetHead().GetRef(),
+		BaseBranch: pr.GetBase().GetRef(),
+		State:      state,
+	}, nil
+}
+
+// UpdatePullRequestBase retargets the pull request onto a new base branch.
+func (c *Client) UpdatePullRequestBase(ctx context.Context, repo provider.Repo, number int, baseBranch string) error {
+	owner, name, err := splitRepo(repo)
+	if err != nil {
+		return err
+	}
+	if _, _, err := c.gh.PullRequests.Edit(ctx, owner, name, number, &gh.PullRequest{
+		Base: &gh.PullRequestBranch{Ref: gh.Ptr(baseBranch)},
+	}); err != nil {
+		return fmt.Errorf("github: update pull request #%d base to %q in %s: %w", number, baseBranch, repo.FullPath, classify(err))
+	}
+	return nil
 }
 
 // CommentOnPullRequest posts body as a comment on the pull request. On GitHub a

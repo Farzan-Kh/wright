@@ -64,6 +64,10 @@ with your credentials.
   write path (including issue-label add/remove and PR operations).
 - A Phase 1 pipeline: poll → gate → sandboxed agent tool loop → verifier retry
   loop → git push → PR creation.
+- Optional cross-issue dependency stacking (`stacking.enabled`): if an issue
+  references a dependency that already has an open Wright PR, Wright stacks
+  the new work on that PR's branch instead of blocking until a human merges
+  it, then retargets the stacked PR once the dependency merges.
 - Per-issue token and turn accounting.
 - A YAML config format (`wright.yaml`) describing one or more repos.
 - A CLI:
@@ -161,7 +165,7 @@ and adapter testing.
 ## Package map
 
 Current implementation centers on `internal/{poller,gate,sandbox,agent,verifier,gitops,pipeline}`
-plus `internal/{config,provider,cli}`.
+plus `internal/{config,provider,cli,stack}`.
 
 Phase 2 work (queueing/concurrency/reliability hardening) is planned but not yet implemented.
 

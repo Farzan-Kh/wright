@@ -91,3 +91,11 @@ repos:
     #   # around CI/CD files and scope — is gone unless you restate it here.
     #   # system_override: |
     #   #   You are a specialized agent for this repo. ...
+
+    # stacking: if issue #14 references issue #13 and #13 already has an open
+    # Wright PR, Wright branches #14's work off #13's PR branch instead of
+    # blocking until a human merges #13, then retargets #14's PR onto the
+    # real base branch once #13 merges. Off by default — this changes what
+    # code gets combined into a PR before human review.
+    # stacking:
+    #   enabled: true

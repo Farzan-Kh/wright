@@ -90,7 +90,11 @@ Poller → Gate → (executor: Sandbox → Agent Runner → Verifier → loop) �
 - **`internal/gate`** (`Gate.CheckWithUsage`) — a cheap-model triage pass
   deciding whether an issue has enough information to attempt. Grounds the
   triage in live state rather than trusting issue text alone: resolves `#N`
-  references against the provider's current issue state, and — when
+  references (via the exported `ExtractIssueReferences`, also reused by
+  `run_exec.go`'s stacking base-branch selection so the two scans can't
+  drift) against the provider's current issue state, noting when a
+  referenced-but-still-open issue already has an open Wright PR (a
+  stackable, not blocking, dependency — see `internal/stack`), and — when
   `Gate.Provider` is set — gives the model two bounded, read-only tools
   (`repo_read_file`, `repo_list_dir`, capped at `MaxToolTurns`, default 3) to
   check whether something it thinks is missing already exists in the repo.
@@ -153,6 +157,22 @@ Poller → Gate → (executor: Sandbox → Agent Runner → Verifier → loop) �
   just retries the PR-open call against the already-pushed branch. This also
   fixes what used to be a dead end: a PR-creation failure left a pushed branch
   that the idempotency check in `run_exec.go` would otherwise skip forever.
+
+- **`internal/stack`** (`Store`, `FileStore`, `Reconcile`) — opt-in
+  (`RepoConfig.Stacking.Enabled`, default false) tracking for PRs Wright
+  stacked on an in-flight dependency PR instead of blocking until a human
+  merges it. `run_exec.go` picks the stacking base branch deterministically
+  (never the gate's LLM call): when an issue references a dependency that
+  already has an open Wright PR, it branches on that PR's head branch
+  instead of the resolved base branch, notes the relationship in the new
+  PR's body, and — after a successful `OpenPR` — records a `stack.Entry`
+  (dependency PR number, the *real* base branch it would have used
+  otherwise). `Reconcile` runs once per poll cycle, deterministic and
+  LLM-free: once a tracked dependency PR merges, it retargets the stacked
+  PR onto the real base branch and comments that CI/tests should be
+  rechecked (no automatic re-verification in v1); if the dependency PR
+  closes unmerged, it comments and drops the entry instead of checking it
+  forever.
 
 - **`internal/config`** — YAML schema (`wright.yaml`) and defaults
   (`applyDefaults`) / validation. `repos` is a list from day one (Phase 1 CLI

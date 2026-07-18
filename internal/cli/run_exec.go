@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -16,11 +17,13 @@ import (
 	"github.com/farzan-kh/wright/internal/cache"
 	"github.com/farzan-kh/wright/internal/config"
 	"github.com/farzan-kh/wright/internal/cost"
+	"github.com/farzan-kh/wright/internal/gate"
 	"github.com/farzan-kh/wright/internal/gitops"
 	"github.com/farzan-kh/wright/internal/logging"
 	"github.com/farzan-kh/wright/internal/pipeline"
 	"github.com/farzan-kh/wright/internal/provider"
 	"github.com/farzan-kh/wright/internal/sandbox"
+	"github.com/farzan-kh/wright/internal/stack"
 	"github.com/farzan-kh/wright/internal/verifier"
 )
 
@@ -35,6 +38,22 @@ type issueExecutor struct {
 	// next attempt at the same issue can resume rather than re-spending LLM
 	// turns from scratch. Nil disables caching entirely.
 	Cache cache.Store
+	// Stack tracks PRs stacked on an in-flight dependency PR (see
+	// RepoConfig.Stacking) so they can be retargeted once that dependency
+	// merges. Nil when stacking is disabled.
+	Stack stack.Store
+}
+
+// stackedDependency is a referenced issue that already has an open Wright PR
+// Handle can stack this issue's work on top of, instead of blocking until a
+// human merges it.
+type stackedDependency struct {
+	issueNumber int
+	pr          *provider.PullRequest
+	// others holds additional referenced issues that also have an open
+	// Wright PR but weren't chosen to stack on - a branch can only have one
+	// parent, so at most one dependency can be stacked on at a time.
+	others []int
 }
 
 func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.Summary, error) {
@@ -64,6 +83,17 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 		baseBranch = b
 	}
 	l.Debug("executor: base branch resolved", "base_branch", baseBranch)
+
+	realBaseBranch := baseBranch
+	var stackedOn *stackedDependency
+	if e.RepoConfig.Stacking.Enabled {
+		stackedOn = e.findStackDependency(ctx, l, issue)
+		if stackedOn != nil {
+			baseBranch = stackedOn.pr.HeadBranch
+			l.Info("executor: stacking on in-flight dependency PR",
+				"depends_on_issue", stackedOn.issueNumber, "depends_on_pr", stackedOn.pr.Number, "stacked_base_branch", baseBranch)
+		}
+	}
 
 	remoteURL, err := repoRemoteURL(e.RepoConfig)
 	if err != nil {
@@ -187,15 +217,6 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 			{Type: "bash_20250124"},
 			{Type: "text_editor_20250728"},
 		}
-
-		l.Debug("executor: agent run started", "attempt", attempt, "remaining_turns", cfg.MaxTurns)
-		runResult, runErr := runner.Run(ctx, agent.RunRequest{System: systemPrompt, History: history, Tools: tools})
-		totalCost.Merge(runResult.UsageAndCost)
-		if runErr != nil {
-			l.Error("executor: agent run failed", "attempt", attempt, "error", runErr.Error())
-			return totalCost, runErr
-		}
-
 		const maxVerifyAttempts = 3
 		for attempt := 1; attempt <= maxVerifyAttempts; attempt++ {
 			cfg := runner.Cfg
@@ -212,7 +233,7 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 
 			l.Debug("executor: agent run started", "attempt", attempt, "remaining_turns", cfg.MaxTurns)
 			runResult, runErr := runner.Run(ctx, agent.RunRequest{System: systemPrompt, History: history, Tools: tools})
-			totalCost = mergeCostSummary(totalCost, runResult.UsageAndCost)
+			totalCost.Merge(runResult.UsageAndCost)
 			if runErr != nil {
 				l.Error("executor: agent run failed", "attempt", attempt, "error", runErr.Error())
 				e.cacheIncomplete(ctx, l, task, repoKey, issue, branchName, baseBranch, systemPrompt, runResult.History, totalCost, verifyCmd, verifyOut, runErr.Error())
@@ -249,6 +270,9 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 
 	prTitle := fmt.Sprintf("Issue #%d: %s", issue.Number, truncate(strings.TrimSpace(issue.Title), 72))
 	prBody := buildPRBody(issue, diffSummary, verifyCmd, verifyOut)
+	if stackedOn != nil {
+		prBody += "\n\n---\n" + stackingNote(stackedOn)
+	}
 	pr, err := ops.OpenPR(ctx, prTitle, prBody, branch, baseBranch, false)
 	if err != nil {
 		e.cachePRPending(l, repoKey, issue, branch, baseBranch, diffSummary, verifyCmd, verifyOut, totalCost, err.Error())
@@ -257,10 +281,88 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 	l.Info("executor: PR opened", "pr", pr.Number, "url", pr.URL)
 	e.clearCache(repoKey, issue.Number)
 
+	// A cached (interrupted) PR-open attempt resumes through resumePRPending,
+	// which doesn't carry stackedOn/realBaseBranch - cache.Entry doesn't
+	// record them - so a stacked PR whose OpenPR call failed and later
+	// succeeds on resume won't be tracked for auto-retarget. Rare (PR-open is
+	// already the least likely step to fail) and left as a known v1 gap.
+	if stackedOn != nil && e.Stack != nil {
+		if err := e.Stack.Add(stack.Entry{
+			Repo:              repoKey,
+			StackedPRNumber:   pr.Number,
+			StackedHeadBranch: branch,
+			DependsOnIssue:    stackedOn.issueNumber,
+			DependsOnPRNumber: stackedOn.pr.Number,
+			RealBaseBranch:    realBaseBranch,
+			CreatedAt:         time.Now(),
+		}); err != nil {
+			l.Info("executor: stack: failed to register stacked PR for retarget tracking", "error", err.Error())
+		}
+	}
+
 	_ = e.Provider.CommentOnIssue(ctx, e.Repo, issue.Number,
 		fmt.Sprintf("Wright opened PR #%d: %s", pr.Number, pr.URL))
 
 	return totalCost, nil
+}
+
+// findStackDependency looks for a referenced issue that already has an open
+// Wright PR and returns the lowest-numbered such dependency to stack this
+// issue's work on top of, or nil if none do. Multiple simultaneous open
+// dependencies can't all be stacked on at once - a branch has one parent -
+// so any others found are carried along on the result for a PR-body note.
+func (e *issueExecutor) findStackDependency(ctx context.Context, l *slog.Logger, issue provider.Issue) *stackedDependency {
+	refs := gate.ExtractIssueReferences(issue)
+	if len(refs) == 0 {
+		return nil
+	}
+	sorted := append([]int(nil), refs...)
+	sort.Ints(sorted)
+
+	var found []stackedDependency
+	for _, n := range sorted {
+		pr, err := e.Provider.FindOpenPullRequestByHead(ctx, e.Repo, gitops.BranchName(n))
+		if err != nil {
+			l.Info("executor: stack: dependency PR lookup failed", "issue", n, "error", err.Error())
+			continue
+		}
+		if pr != nil {
+			found = append(found, stackedDependency{issueNumber: n, pr: pr})
+		}
+	}
+	if len(found) == 0 {
+		return nil
+	}
+	primary := found[0]
+	for _, other := range found[1:] {
+		primary.others = append(primary.others, other.issueNumber)
+	}
+	return &primary
+}
+
+// stackingNote documents, directly on the PR, why its base isn't the repo's
+// real base branch: a human reviewer needs this even though it's also
+// tracked internally, and it's the only place a "some other dependency was
+// also referenced but not stacked" limitation is surfaced at all.
+func stackingNote(s *stackedDependency) string {
+	note := fmt.Sprintf(
+		"**Stacked PR**: this branches off `%s` (dependency #%d, PR #%d), not the repo's base branch, "+
+			"because that dependency hasn't merged yet. Wright will retarget this PR onto the real base "+
+			"branch automatically once #%d merges.",
+		s.pr.HeadBranch, s.issueNumber, s.pr.Number, s.issueNumber)
+	if len(s.others) > 0 {
+		note += fmt.Sprintf(" Also references %s, each with its own open Wright PR - a PR can only have "+
+			"one base, so those were not stacked on; verify them manually.", formatIssueRefs(s.others))
+	}
+	return note
+}
+
+func formatIssueRefs(numbers []int) string {
+	parts := make([]string, len(numbers))
+	for i, n := range numbers {
+		parts[i] = "#" + strconv.Itoa(n)
+	}
+	return strings.Join(parts, ", ")
 }
 
 // resumePRPending retries opening the PR for an attempt that already got as

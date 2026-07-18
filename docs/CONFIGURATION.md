@@ -33,6 +33,7 @@ ignored, so typos surface at load time rather than at runtime.
 | `verify`        | object | —                                | See [`verify`](#verify). |
 | `prompt`        | object | —                                | See [`prompt`](#prompt). |
 | `retry`         | object | —                                | See [`retry`](#retry). |
+| `stacking`      | object | —                                | See [`stacking`](#stacking). |
 
 ### Repo token resolution order
 
@@ -141,6 +142,27 @@ the Docker daemon (image pulls), and git push/clone.
 | `base_delay_ms` | int    | `500`          | Delay, in ms, before the first retry (and every retry under `fixed`). Must be `>= 0`. |
 | `max_delay_ms`  | int    | `30000`        | Caps any single retry delay, in ms. Must be `>= 0`. |
 | `exponent`      | float  | `2`            | Per-attempt delay multiplier under `exponential`. Must be `>= 0`. |
+
+## `stacking`
+
+Controls whether Wright stacks a new issue's work on top of an already-open
+Wright PR for a dependency it references (e.g. issue #14's body says
+"Requires #13", and #13 already has an open, unmerged Wright PR), instead of
+blocking until a human merges that dependency first. See `internal/stack`.
+
+| Field     | Type | Default | Notes |
+|-----------|------|---------|-------|
+| `enabled` | bool | `false` | Opt-in: this changes what code gets combined into a PR before human review, so it's off by default rather than a behavior change existing configs see automatically. |
+
+When enabled, a stacked PR is opened with its base set to the dependency's
+branch rather than the repo's real base branch, and its body notes the
+stacking relationship. Once the dependency's PR merges, Wright automatically
+retargets the stacked PR's base back onto the real base branch and comments
+that the diff/CI should be rechecked — Wright does not automatically re-verify
+the stacked PR after a retarget. If an issue references more than one
+still-open dependency with its own Wright PR, only the lowest-numbered one is
+stacked on (a branch can only have one base); the others are noted in the PR
+body for manual follow-up.
 
 ## `cache`
 

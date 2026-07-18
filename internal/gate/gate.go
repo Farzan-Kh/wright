@@ -13,6 +13,7 @@ import (
 
 	"github.com/farzan-kh/wright/internal/agent/llm"
 	"github.com/farzan-kh/wright/internal/cost"
+	"github.com/farzan-kh/wright/internal/gitops"
 	"github.com/farzan-kh/wright/internal/logging"
 	"github.com/farzan-kh/wright/internal/provider"
 )
@@ -58,6 +59,10 @@ const basePrompt = "You are triaging a software issue before an autonomous codin
 	"credentials, or an open question about which of several approaches to take). Take the " +
 	"comment thread into account too: information requested in the body is often supplied later " +
 	"in a comment, and that counts toward the issue being ready.\n\n" +
+	"A referenced issue that is still open is not automatically a blocker: if its line notes an " +
+	"open Wright pull request, the automation has already produced a fix in flight and can stack " +
+	"this issue's work on top of it, so don't mark the issue not-ready solely because that " +
+	"dependency issue itself isn't closed yet.\n\n" +
 	"Respond with JSON only, no markdown fences or surrounding prose: " +
 	`{"ready":true|false,"missing":"..."}. ` +
 	"When ready is true, missing must be an empty string. When ready is false, missing must be " +
@@ -106,12 +111,12 @@ func (g *Gate) checkWithUsage(ctx context.Context, issue provider.Issue) (Verdic
 	return g.checkWithTools(ctx, userPrompt)
 }
 
-// resolveReferences scans the issue's title, body, and comments for "#N"
-// references and resolves each against live provider state, one line per
-// reference: "#N (open|closed): <title>". A lookup failure is noted inline
-// rather than failing the whole triage check. Returns "" when there are no
-// references to resolve.
-func (g *Gate) resolveReferences(ctx context.Context, issue provider.Issue) string {
+// ExtractIssueReferences scans the issue's title, body, and comments for "#N"
+// references, dedupes them, excludes issue's own number, and caps the result
+// at maxResolvedReferences so a pathological issue body can't turn triage (or
+// stacking base-branch selection in run_exec.go, which reuses this same scan
+// so the two can't drift) into an unbounded number of API calls.
+func ExtractIssueReferences(issue provider.Issue) []int {
 	text := issue.Title + "\n" + issue.Body + "\n" + issue.FormatComments()
 	matches := issueRefPattern.FindAllStringSubmatch(text, -1)
 
@@ -128,6 +133,19 @@ func (g *Gate) resolveReferences(ctx context.Context, issue provider.Issue) stri
 			break
 		}
 	}
+	return numbers
+}
+
+// resolveReferences resolves each "#N" reference in issue against live
+// provider state, one line per reference: "#N (open|closed): <title>", with
+// an open reference also noting an in-flight Wright PR when one already
+// exists for it (via FindOpenPullRequestByHead on its deterministic branch
+// name), so triage knows the dependency is workable even though the issue
+// itself isn't closed yet. A lookup failure is noted inline rather than
+// failing the whole triage check. Returns "" when there are no references to
+// resolve.
+func (g *Gate) resolveReferences(ctx context.Context, issue provider.Issue) string {
+	numbers := ExtractIssueReferences(issue)
 	if len(numbers) == 0 {
 		return ""
 	}
@@ -143,6 +161,12 @@ func (g *Gate) resolveReferences(ctx context.Context, issue provider.Issue) stri
 			continue
 		}
 		fmt.Fprintf(&b, "#%d (%s): %s", n, ref.State, ref.Title)
+		if ref.State != "open" {
+			continue
+		}
+		if pr, err := g.Provider.FindOpenPullRequestByHead(ctx, g.Repo, gitops.BranchName(n)); err == nil && pr != nil {
+			fmt.Fprintf(&b, ", open Wright PR #%d: %s", pr.Number, pr.URL)
+		}
 	}
 	return b.String()
 }

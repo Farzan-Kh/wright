@@ -131,6 +131,18 @@ func (p *Provider) OpenPullRequest(ctx context.Context, repo provider.Repo, spec
 	})
 }
 
+func (p *Provider) GetPullRequest(ctx context.Context, repo provider.Repo, number int) (*provider.PullRequest, error) {
+	return retry.Value(ctx, p.config, retryable, func(ctx context.Context) (*provider.PullRequest, error) {
+		return p.inner.GetPullRequest(ctx, repo, number)
+	})
+}
+
+func (p *Provider) UpdatePullRequestBase(ctx context.Context, repo provider.Repo, number int, baseBranch string) error {
+	return retry.Do(ctx, p.config, retryable, func(ctx context.Context) error {
+		return p.inner.UpdatePullRequestBase(ctx, repo, number, baseBranch)
+	})
+}
+
 func (p *Provider) MergePullRequest(ctx context.Context, repo provider.Repo, number int, opts provider.MergeOptions) error {
 	return retry.Do(ctx, p.config, retryable, func(ctx context.Context) error {
 		return p.inner.MergePullRequest(ctx, repo, number, opts)

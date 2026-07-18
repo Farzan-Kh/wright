@@ -91,6 +91,7 @@ type fakeRepoProvider struct {
 	dirs             map[string][]string // "ref:path" -> entries
 	defaultBranch    string
 	defaultBranchErr error
+	openPRs          map[string]*provider.PullRequest // head branch -> open PR
 }
 
 var _ provider.Provider = (*fakeRepoProvider)(nil)
@@ -148,11 +149,17 @@ func (f *fakeRepoProvider) DeleteBranch(context.Context, provider.Repo, string) 
 func (f *fakeRepoProvider) PushCommits(context.Context, provider.Repo, string, []provider.Commit) (string, error) {
 	return "", nil
 }
-func (f *fakeRepoProvider) FindOpenPullRequestByHead(context.Context, provider.Repo, string) (*provider.PullRequest, error) {
-	return nil, nil
+func (f *fakeRepoProvider) FindOpenPullRequestByHead(_ context.Context, _ provider.Repo, headBranch string) (*provider.PullRequest, error) {
+	return f.openPRs[headBranch], nil
 }
 func (f *fakeRepoProvider) OpenPullRequest(context.Context, provider.Repo, provider.PullRequestSpec) (*provider.PullRequest, error) {
 	return nil, nil
+}
+func (f *fakeRepoProvider) GetPullRequest(context.Context, provider.Repo, int) (*provider.PullRequest, error) {
+	return nil, nil
+}
+func (f *fakeRepoProvider) UpdatePullRequestBase(context.Context, provider.Repo, int, string) error {
+	return nil
 }
 func (f *fakeRepoProvider) MergePullRequest(context.Context, provider.Repo, int, provider.MergeOptions) error {
 	return nil
@@ -190,6 +197,37 @@ func TestReferenceResolutionInjectsLiveStatus(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "#14 (open): Wire up ADR 007") {
 		t.Errorf("prompt missing resolved #14 status:\n%s", prompt)
+	}
+}
+
+// TestReferenceResolutionNotesStackableOpenPR is the regression test for the
+// stacked-PR feature's gate-side half: an open referenced issue with an
+// already-open Wright PR must be surfaced to the triage model as a workable
+// (stackable) dependency, not silently indistinguishable from a plain open
+// blocker.
+func TestReferenceResolutionNotesStackableOpenPR(t *testing.T) {
+	f := &llm.FakeProvider{Responses: []llm.MessageResponse{readyResponse()}}
+	p := &fakeRepoProvider{
+		issues: map[int]provider.Issue{
+			13: {Number: 13, Title: "Add config parsing", State: "open"},
+		},
+		openPRs: map[string]*provider.PullRequest{
+			"wright/issue-13": {Number: 45, URL: "https://example.com/pr/45", HeadBranch: "wright/issue-13", State: "open"},
+		},
+	}
+	g := &Gate{LLM: f, Model: "claude-haiku-4-5", MaxTokens: 256, Provider: p, Repo: provider.Repo{FullPath: "acme/widgets"}}
+
+	v, err := g.Check(context.Background(), provider.Issue{Number: 14, Title: "Use config", Body: "Requires #13."})
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if !v.Ready {
+		t.Fatalf("verdict = %+v, want ready=true", v)
+	}
+
+	prompt := requestText(f.Requests[0])
+	if !strings.Contains(prompt, "#13 (open): Add config parsing, open Wright PR #45: https://example.com/pr/45") {
+		t.Errorf("prompt missing stackable-PR annotation for #13:\n%s", prompt)
 	}
 }
 

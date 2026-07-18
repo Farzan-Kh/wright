@@ -72,6 +72,16 @@ type Provider interface {
 	// OpenPullRequest opens a pull request (GitLab: merge request) per spec.
 	OpenPullRequest(ctx context.Context, repo Repo, spec PullRequestSpec) (*PullRequest, error)
 
+	// GetPullRequest fetches a pull request by number, regardless of its
+	// state (open, closed, or merged) — unlike FindOpenPullRequestByHead,
+	// which only ever returns open ones.
+	GetPullRequest(ctx context.Context, repo Repo, number int) (*PullRequest, error)
+
+	// UpdatePullRequestBase retargets an existing pull request onto a new
+	// base branch. Idempotent: retargeting onto the branch it already points
+	// at succeeds without effect.
+	UpdatePullRequestBase(ctx context.Context, repo Repo, number int, baseBranch string) error
+
 	// MergePullRequest merges the pull request identified by number.
 	MergePullRequest(ctx context.Context, repo Repo, number int, opts MergeOptions) error
 

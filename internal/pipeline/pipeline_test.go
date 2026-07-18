@@ -79,6 +79,12 @@ func (f *fakeProvider) FindOpenPullRequestByHead(context.Context, provider.Repo,
 func (f *fakeProvider) OpenPullRequest(context.Context, provider.Repo, provider.PullRequestSpec) (*provider.PullRequest, error) {
 	return nil, nil
 }
+func (f *fakeProvider) GetPullRequest(context.Context, provider.Repo, int) (*provider.PullRequest, error) {
+	return nil, nil
+}
+func (f *fakeProvider) UpdatePullRequestBase(context.Context, provider.Repo, int, string) error {
+	return nil
+}
 func (f *fakeProvider) MergePullRequest(context.Context, provider.Repo, int, provider.MergeOptions) error {
 	return nil
 }

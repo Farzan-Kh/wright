@@ -99,6 +99,7 @@ type PullRequest struct {
 	URL        string
 	HeadBranch string
 	BaseBranch string
+	State      string // "open", "closed", or "merged"
 }
 
 // MergeMethod selects how a pull request is merged.

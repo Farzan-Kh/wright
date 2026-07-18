@@ -106,6 +106,9 @@ type RepoConfig struct {
 	// Retry configures backoff for connection attempts to the provider API,
 	// the LLM API, and the Docker daemon.
 	Retry RetryConfig `yaml:"retry"`
+	// Stacking configures cross-issue dependency stacking (see
+	// internal/stack). Disabled by default.
+	Stacking StackingConfig `yaml:"stacking"`
 }
 
 // BudgetConfig bounds the number of agent turns spent resolving a single
@@ -187,6 +190,16 @@ func (rc RetryConfig) ToRetryConfig() retry.Config {
 		MaxDelay:    time.Duration(rc.MaxDelayMS) * time.Millisecond,
 		Exponent:    rc.Exponent,
 	}
+}
+
+// StackingConfig controls whether Wright stacks a new issue's work on top of
+// an already-open Wright PR for a dependency it references, instead of
+// blocking until a human merges that dependency. See internal/stack.
+type StackingConfig struct {
+	// Enabled turns on dependency stacking. Defaults to false: this changes
+	// what code gets combined into a PR before human review, so it's opt-in
+	// rather than a behavior change existing users see automatically.
+	Enabled bool `yaml:"enabled"`
 }
 
 // PromptConfig customizes the agent's system prompt behavior text.

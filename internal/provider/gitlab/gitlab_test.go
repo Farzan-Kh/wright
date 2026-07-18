@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -535,6 +536,58 @@ func TestClosePullRequest(t *testing.T) {
 	}
 	if body["state_event"] != "close" {
 		t.Errorf("state_event = %v, want close", body["state_event"])
+	}
+}
+
+func TestGetPullRequest(t *testing.T) {
+	h := router(t, map[string]http.HandlerFunc{
+		"GET " + base + "/merge_requests/7": func(w http.ResponseWriter, r *http.Request) {
+			mustWrite(w, []byte(`{"iid":7,"web_url":"https://gitlab.example.com/acme/widgets/-/merge_requests/7","source_branch":"wright/x","target_branch":"main","state":"merged"}`))
+		},
+	})
+	c := newTestClient(t, h)
+	pr, err := c.GetPullRequest(context.Background(), testRepo, 7)
+	if err != nil {
+		t.Fatalf("GetPullRequest: %v", err)
+	}
+	if pr.State != "merged" {
+		t.Errorf("state = %q, want merged", pr.State)
+	}
+}
+
+func TestGetPullRequestOpen(t *testing.T) {
+	h := router(t, map[string]http.HandlerFunc{
+		"GET " + base + "/merge_requests/7": func(w http.ResponseWriter, r *http.Request) {
+			mustWrite(w, []byte(`{"iid":7,"source_branch":"wright/x","target_branch":"main","state":"opened"}`))
+		},
+	})
+	c := newTestClient(t, h)
+	pr, err := c.GetPullRequest(context.Background(), testRepo, 7)
+	if err != nil {
+		t.Fatalf("GetPullRequest: %v", err)
+	}
+	if pr.State != "open" {
+		t.Errorf("state = %q, want open (normalized from gitlab's \"opened\")", pr.State)
+	}
+}
+
+func TestUpdatePullRequestBase(t *testing.T) {
+	var body map[string]any
+	target := "main"
+	h := router(t, map[string]http.HandlerFunc{
+		"PUT " + base + "/merge_requests/7": func(w http.ResponseWriter, r *http.Request) {
+			body = decodeBody(t, r)
+			target = body["target_branch"].(string)
+			mustWrite(w, []byte(`{"iid":7,"source_branch":"wright/x"}`))
+		},
+		"GET " + base + "/merge_requests/7": func(w http.ResponseWriter, r *http.Request) {
+			mustWrite(w, fmt.Appendf(nil, `{"iid":7,"source_branch":"wright/x","target_branch":%q,"state":"opened"}`, target))
+		},
+	})
+	c := newTestClient(t, h)
+	providertest.AssertPullRequestBaseRoundTrip(t, c, testRepo, 7, "release")
+	if body["target_branch"] != "release" {
+		t.Errorf("target_branch = %v, want release", body["target_branch"])
 	}
 }
 
