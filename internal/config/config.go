@@ -40,6 +40,8 @@ const (
 	DefaultSandboxImage   = "alpine/git:2.47.2"
 	DefaultSandboxWorkdir = "/workspace"
 
+	DefaultCacheDir = ".wright/cache"
+
 	DefaultRetryStrategy    = RetryStrategyExponential
 	DefaultRetryMaxAttempts = 4
 	DefaultRetryBaseDelayMS = 500
@@ -53,6 +55,21 @@ const (
 type Config struct {
 	Version int          `yaml:"version"`
 	Repos   []RepoConfig `yaml:"repos"`
+	// Cache configures where Wright persists partial progress from an
+	// interrupted issue-resolution attempt (turn limit, sandbox fault, or a
+	// failed commit/push/PR step), so the next attempt at the same issue can
+	// resume instead of re-spending LLM turns from scratch. Shared across
+	// all repos in this config, since it's local daemon state rather than a
+	// per-repo behavior.
+	Cache CacheConfig `yaml:"cache"`
+}
+
+// CacheConfig configures the resume cache. See internal/cache.
+type CacheConfig struct {
+	// Dir is the directory cached attempts are written under, one JSON file
+	// per issue. Relative paths are resolved against the working directory
+	// wright is run from. Defaults to DefaultCacheDir.
+	Dir string `yaml:"dir"`
 }
 
 // RepoConfig configures Wright for a single repository (GitHub) or project
@@ -191,6 +208,9 @@ type PromptConfig struct {
 // applyDefaults fills in omitted optional fields. It is called by Load before
 // validation.
 func (c *Config) applyDefaults() {
+	if c.Cache.Dir == "" {
+		c.Cache.Dir = DefaultCacheDir
+	}
 	for i := range c.Repos {
 		rc := &c.Repos[i]
 		if rc.TriggerLabel == "" {

@@ -8,7 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/farzan-kh/wright/internal/agent"
 	"github.com/farzan-kh/wright/internal/agent/llm"
+	"github.com/farzan-kh/wright/internal/cache"
 	"github.com/farzan-kh/wright/internal/config"
 	"github.com/farzan-kh/wright/internal/cost"
 	"github.com/farzan-kh/wright/internal/logging"
@@ -242,6 +244,7 @@ type fakeExecProvider struct {
 	defaultBranch     string
 	openPRCount       int
 	openPRLastSpec    provider.PullRequestSpec
+	openPRErr         error
 	commentIssueCalls []string
 }
 
@@ -291,6 +294,9 @@ func (f *fakeExecProvider) FindOpenPullRequestByHead(context.Context, provider.R
 func (f *fakeExecProvider) OpenPullRequest(_ context.Context, _ provider.Repo, spec provider.PullRequestSpec) (*provider.PullRequest, error) {
 	f.openPRCount++
 	f.openPRLastSpec = spec
+	if f.openPRErr != nil {
+		return nil, f.openPRErr
+	}
 	return &provider.PullRequest{Number: 77, URL: "https://example.com/pr/77", HeadBranch: spec.HeadBranch, BaseBranch: spec.BaseBranch}, nil
 }
 func (f *fakeExecProvider) MergePullRequest(context.Context, provider.Repo, int, provider.MergeOptions) error {
@@ -457,5 +463,371 @@ func TestIssueExecutorHandleRetriesAfterVerifyFailure(t *testing.T) {
 	}
 	if !foundRepoInstructions {
 		t.Fatalf("first LLM request should include CLAUDE.md repo instructions, got %+v", llmFake.Requests[0].System)
+	}
+}
+
+// TestIssueExecutorHandleCachesOnTurnLimitAndResumes exercises the main
+// resume path end to end: a first attempt burns its whole turn budget
+// mid-edit, gets cached, and a second attempt against the same cache picks
+// the conversation back up (with the prior diff already reapplied to the
+// fresh sandbox) instead of starting the agent over from scratch.
+func TestIssueExecutorHandleCachesOnTurnLimitAndResumes(t *testing.T) {
+	store := &cache.FileStore{Dir: t.TempDir()}
+	repo := provider.Repo{FullPath: "acme/widgets"}
+	rc := &config.RepoConfig{
+		Provider: config.ProviderGitHub,
+		Repo:     "acme/widgets",
+		LLM:      config.LLMConfig{Auth: "api_key", AgentModel: "claude-sonnet-5", Effort: "high"},
+		Budget:   config.BudgetConfig{MaxTurns: 1},
+		Verify:   config.VerifyConfig{Command: "go test ./..."},
+	}
+	issue := provider.Issue{Number: 21, Title: "Add feature", Body: "details"}
+	fp := &fakeExecProvider{defaultBranch: "main"}
+
+	// Phase A: the agent uses a tool and immediately runs out of turn budget.
+	llmFakeA := &llm.FakeProvider{Responses: []llm.MessageResponse{
+		{
+			Message: llm.Message{Role: "assistant", Content: []llm.ContentBlock{
+				{Type: "tool_use", Name: "bash", ToolUseID: "t1", Input: map[string]any{"command": "echo hi"}},
+			}},
+			StopReason: "tool_use",
+			Usage:      cost.Usage{InputTokens: 50, OutputTokens: 5},
+		},
+	}}
+	taskA := &fakeTask{}
+	taskA.BashFn = func(command string) (string, error) {
+		switch command {
+		case "git ls-remote --heads origin 'wright/issue-21'":
+			return "", nil
+		case "git add -A && git diff --cached 'main'":
+			return "diff --git a/foo.go b/foo.go\n+package foo\n", nil
+		default:
+			return "", nil
+		}
+	}
+	orchA := &fakeOrchestrator{task: taskA}
+	execA := &issueExecutor{
+		Provider: fp, Repo: repo, RepoConfig: rc, ProviderToken: "tok",
+		LLM: llmFakeA, Sandbox: orchA, Cache: store,
+	}
+
+	_, err := execA.Handle(context.Background(), issue)
+	if !errors.Is(err, agent.ErrTurnLimit) {
+		t.Fatalf("Handle phase A err = %v, want agent.ErrTurnLimit", err)
+	}
+
+	entry, loadErr := store.Load(repo.FullPath, issue.Number)
+	if loadErr != nil {
+		t.Fatalf("cache Load: %v", loadErr)
+	}
+	if entry == nil {
+		t.Fatal("expected a cached entry after turn-limit failure")
+	}
+	if entry.Stage != cache.StageAgentIncomplete {
+		t.Fatalf("Stage = %q, want %q", entry.Stage, cache.StageAgentIncomplete)
+	}
+	if strings.TrimSpace(entry.Diff) == "" {
+		t.Fatal("expected a non-empty cached diff")
+	}
+	if entry.Cost.Turns != 1 {
+		t.Fatalf("cached Cost.Turns = %d, want 1", entry.Cost.Turns)
+	}
+	cachedHistoryLen := len(entry.History)
+	if cachedHistoryLen == 0 {
+		t.Fatal("expected cached conversation history")
+	}
+
+	// Phase B: a fresh sandbox, resumed with a bigger turn budget, finishes.
+	rcResume := *rc
+	rcResume.Budget.MaxTurns = 10
+	llmFakeB := &llm.FakeProvider{Responses: []llm.MessageResponse{
+		{
+			Message:    llm.Message{Role: "assistant", Content: []llm.ContentBlock{{Type: "text", Text: "done"}}},
+			StopReason: "end_turn",
+			Usage:      cost.Usage{InputTokens: 30, OutputTokens: 5},
+		},
+	}}
+	taskB := &fakeTask{}
+	verifyCalls := 0
+	taskB.BashFn = func(command string) (string, error) {
+		switch {
+		case command == "git ls-remote --heads origin 'wright/issue-21'":
+			return "", nil
+		case command == "git apply --whitespace=nowarn '.wright-resume.patch' && rm -f '.wright-resume.patch'":
+			return "", nil
+		case command == "go test ./...":
+			verifyCalls++
+			return "ok", nil
+		case command == "git checkout -b wright/issue-21":
+			return "", nil
+		case command == "git add -A":
+			return "", nil
+		case command == "git diff --cached --shortstat":
+			return "1 file changed, 1 insertion(+)\n", nil
+		case strings.HasPrefix(command, "git commit -m "):
+			return "", nil
+		case strings.HasPrefix(command, "git push "):
+			return "", nil
+		default:
+			return "", nil
+		}
+	}
+	orchB := &fakeOrchestrator{task: taskB}
+	execB := &issueExecutor{
+		Provider: fp, Repo: repo, RepoConfig: &rcResume, ProviderToken: "tok",
+		LLM: llmFakeB, Sandbox: orchB, Cache: store,
+	}
+
+	s, err := execB.Handle(context.Background(), issue)
+	if err != nil {
+		t.Fatalf("Handle phase B: %v", err)
+	}
+	if verifyCalls != 1 {
+		t.Fatalf("verifyCalls = %d, want 1", verifyCalls)
+	}
+	if s.Turns != 2 { // 1 turn already cached + 1 turn to finish
+		t.Fatalf("total turns = %d, want 2", s.Turns)
+	}
+	if len(llmFakeB.Requests) != 1 {
+		t.Fatalf("llm requests in phase B = %d, want 1", len(llmFakeB.Requests))
+	}
+	if len(llmFakeB.Requests[0].Messages) != cachedHistoryLen {
+		t.Fatalf("resumed history length = %d, want cached %d", len(llmFakeB.Requests[0].Messages), cachedHistoryLen)
+	}
+	if fp.openPRCount != 1 {
+		t.Fatalf("openPRCount = %d, want 1", fp.openPRCount)
+	}
+
+	final, loadErr := store.Load(repo.FullPath, issue.Number)
+	if loadErr != nil {
+		t.Fatalf("cache Load after success: %v", loadErr)
+	}
+	if final != nil {
+		t.Fatal("cache should be cleared after a successful resume")
+	}
+}
+
+// TestIssueExecutorHandleCachesOnCommitPushFailureAndResumes covers the
+// verified_unpushed stage: verify passes but the commit/push step fails, and
+// a resume reapplies the diff, re-verifies (no LLM call), and finishes the
+// git + PR steps without invoking the agent again.
+func TestIssueExecutorHandleCachesOnCommitPushFailureAndResumes(t *testing.T) {
+	store := &cache.FileStore{Dir: t.TempDir()}
+	repo := provider.Repo{FullPath: "acme/widgets"}
+	rc := &config.RepoConfig{
+		Provider: config.ProviderGitHub,
+		Repo:     "acme/widgets",
+		LLM:      config.LLMConfig{Auth: "api_key", AgentModel: "claude-sonnet-5", Effort: "high"},
+		Budget:   config.BudgetConfig{MaxTurns: 10},
+		Verify:   config.VerifyConfig{Command: "go test ./..."},
+	}
+	issue := provider.Issue{Number: 30, Title: "Fix bug", Body: "details"}
+	fp := &fakeExecProvider{defaultBranch: "main"}
+
+	// Phase A: agent finishes and verify passes, but the push fails.
+	llmFakeA := &llm.FakeProvider{Responses: []llm.MessageResponse{
+		{
+			Message:    llm.Message{Role: "assistant", Content: []llm.ContentBlock{{Type: "text", Text: "done"}}},
+			StopReason: "end_turn",
+			Usage:      cost.Usage{InputTokens: 40, OutputTokens: 5},
+		},
+	}}
+	taskA := &fakeTask{}
+	taskA.BashFn = func(command string) (string, error) {
+		switch {
+		case command == "git ls-remote --heads origin 'wright/issue-30'":
+			return "", nil
+		case command == "go test ./...":
+			return "ok", nil
+		case command == "git add -A && git diff --cached 'main'":
+			return "diff --git a/bar.go b/bar.go\n+package bar\n", nil
+		case command == "git checkout -b wright/issue-30":
+			return "", nil
+		case command == "git add -A":
+			return "", nil
+		case command == "git diff --cached --shortstat":
+			return "1 file changed, 1 insertion(+)\n", nil
+		case strings.HasPrefix(command, "git commit -m "):
+			return "", nil
+		case strings.HasPrefix(command, "git push "):
+			return "", errors.New("connection reset")
+		default:
+			return "", nil
+		}
+	}
+	orchA := &fakeOrchestrator{task: taskA}
+	execA := &issueExecutor{
+		Provider: fp, Repo: repo, RepoConfig: rc, ProviderToken: "tok",
+		LLM: llmFakeA, Sandbox: orchA, Cache: store,
+	}
+
+	_, err := execA.Handle(context.Background(), issue)
+	if err == nil || !strings.Contains(err.Error(), "connection reset") {
+		t.Fatalf("Handle phase A err = %v, want a push error", err)
+	}
+
+	entry, loadErr := store.Load(repo.FullPath, issue.Number)
+	if loadErr != nil {
+		t.Fatalf("cache Load: %v", loadErr)
+	}
+	if entry == nil || entry.Stage != cache.StageVerifiedUnpushed {
+		t.Fatalf("entry = %+v, want a StageVerifiedUnpushed entry", entry)
+	}
+	if strings.TrimSpace(entry.Diff) == "" {
+		t.Fatal("expected a non-empty cached diff")
+	}
+
+	// Phase B: fresh sandbox, no LLM responses queued at all - if the agent
+	// were invoked here it would fail with ErrFakeExhausted.
+	llmFakeB := &llm.FakeProvider{}
+	taskB := &fakeTask{}
+	verifyCalls, pushCalls := 0, 0
+	taskB.BashFn = func(command string) (string, error) {
+		switch {
+		case command == "git ls-remote --heads origin 'wright/issue-30'":
+			return "", nil
+		case command == "git apply --whitespace=nowarn '.wright-resume.patch' && rm -f '.wright-resume.patch'":
+			return "", nil
+		case command == "go test ./...":
+			verifyCalls++
+			return "ok", nil
+		case command == "git checkout -b wright/issue-30":
+			return "", nil
+		case command == "git add -A":
+			return "", nil
+		case command == "git diff --cached --shortstat":
+			return "1 file changed, 1 insertion(+)\n", nil
+		case strings.HasPrefix(command, "git commit -m "):
+			return "", nil
+		case strings.HasPrefix(command, "git push "):
+			pushCalls++
+			return "", nil
+		default:
+			return "", nil
+		}
+	}
+	orchB := &fakeOrchestrator{task: taskB}
+	execB := &issueExecutor{
+		Provider: fp, Repo: repo, RepoConfig: rc, ProviderToken: "tok",
+		LLM: llmFakeB, Sandbox: orchB, Cache: store,
+	}
+
+	if _, err := execB.Handle(context.Background(), issue); err != nil {
+		t.Fatalf("Handle phase B: %v", err)
+	}
+	if verifyCalls != 1 {
+		t.Fatalf("verifyCalls = %d, want 1 (re-verify, no agent call)", verifyCalls)
+	}
+	if pushCalls != 1 {
+		t.Fatalf("pushCalls = %d, want 1", pushCalls)
+	}
+	if len(llmFakeB.Requests) != 0 {
+		t.Fatalf("llm requests in phase B = %d, want 0 (agent should not run)", len(llmFakeB.Requests))
+	}
+	if fp.openPRCount != 1 {
+		t.Fatalf("openPRCount = %d, want 1", fp.openPRCount)
+	}
+
+	final, loadErr := store.Load(repo.FullPath, issue.Number)
+	if loadErr != nil {
+		t.Fatalf("cache Load after success: %v", loadErr)
+	}
+	if final != nil {
+		t.Fatal("cache should be cleared after a successful resume")
+	}
+}
+
+// TestIssueExecutorHandleCachesOnPRFailureAndResumesWithoutSandbox covers the
+// pr_pending stage: commit+push succeed but opening the PR fails. This used
+// to be a permanent dead end (the branch-exists idempotency check would skip
+// the issue forever on the next attempt); a resume should retry only the
+// PR-open call, touching neither the sandbox nor the agent.
+func TestIssueExecutorHandleCachesOnPRFailureAndResumesWithoutSandbox(t *testing.T) {
+	store := &cache.FileStore{Dir: t.TempDir()}
+	repo := provider.Repo{FullPath: "acme/widgets"}
+	rc := &config.RepoConfig{
+		Provider: config.ProviderGitHub,
+		Repo:     "acme/widgets",
+		LLM:      config.LLMConfig{Auth: "api_key", AgentModel: "claude-sonnet-5", Effort: "high"},
+		Budget:   config.BudgetConfig{MaxTurns: 10},
+		Verify:   config.VerifyConfig{Command: "go test ./..."},
+	}
+	issue := provider.Issue{Number: 44, Title: "Add widget", Body: "details"}
+	fp := &fakeExecProvider{defaultBranch: "main", openPRErr: errors.New("provider unavailable")}
+
+	llmFake := &llm.FakeProvider{Responses: []llm.MessageResponse{
+		{
+			Message:    llm.Message{Role: "assistant", Content: []llm.ContentBlock{{Type: "text", Text: "done"}}},
+			StopReason: "end_turn",
+			Usage:      cost.Usage{InputTokens: 40, OutputTokens: 5},
+		},
+	}}
+	task := &fakeTask{}
+	task.BashFn = func(command string) (string, error) {
+		switch {
+		case command == "git ls-remote --heads origin 'wright/issue-44'":
+			return "", nil
+		case command == "go test ./...":
+			return "ok", nil
+		case command == "git checkout -b wright/issue-44":
+			return "", nil
+		case command == "git add -A":
+			return "", nil
+		case command == "git diff --cached --shortstat":
+			return "1 file changed, 1 insertion(+)\n", nil
+		case strings.HasPrefix(command, "git commit -m "):
+			return "", nil
+		case strings.HasPrefix(command, "git push "):
+			return "", nil
+		default:
+			return "", nil
+		}
+	}
+	orch := &fakeOrchestrator{task: task}
+	exec := &issueExecutor{
+		Provider: fp, Repo: repo, RepoConfig: rc, ProviderToken: "tok",
+		LLM: llmFake, Sandbox: orch, Cache: store,
+	}
+
+	if _, err := exec.Handle(context.Background(), issue); err == nil || !strings.Contains(err.Error(), "provider unavailable") {
+		t.Fatalf("Handle phase A err = %v, want the PR-open error", err)
+	}
+	if fp.openPRCount != 1 {
+		t.Fatalf("openPRCount = %d, want 1", fp.openPRCount)
+	}
+
+	entry, loadErr := store.Load(repo.FullPath, issue.Number)
+	if loadErr != nil {
+		t.Fatalf("cache Load: %v", loadErr)
+	}
+	if entry == nil || entry.Stage != cache.StagePRPending {
+		t.Fatalf("entry = %+v, want a StagePRPending entry", entry)
+	}
+	if entry.Branch != "wright/issue-44" {
+		t.Fatalf("entry.Branch = %q, want wright/issue-44", entry.Branch)
+	}
+
+	// Resume: the provider recovers. The orchestrator must not be started
+	// again and the (empty) LLM fake must not be called.
+	fp.openPRErr = nil
+	if _, err := exec.Handle(context.Background(), issue); err != nil {
+		t.Fatalf("Handle resume: %v", err)
+	}
+	if orch.starts != 1 {
+		t.Fatalf("orchestrator starts = %d, want 1 (resume must not touch the sandbox)", orch.starts)
+	}
+	if len(llmFake.Requests) != 1 {
+		t.Fatalf("llm requests = %d, want 1 (resume must not invoke the agent)", len(llmFake.Requests))
+	}
+	if fp.openPRCount != 2 {
+		t.Fatalf("openPRCount = %d, want 2", fp.openPRCount)
+	}
+
+	final, loadErr := store.Load(repo.FullPath, issue.Number)
+	if loadErr != nil {
+		t.Fatalf("cache Load after resume: %v", loadErr)
+	}
+	if final != nil {
+		t.Fatal("cache should be cleared after a successful PR-pending resume")
 	}
 }

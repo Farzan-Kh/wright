@@ -14,6 +14,7 @@ ignored, so typos surface at load time rather than at runtime.
 |---------|--------|----------|---------------------------------|
 | `version` | int  | yes      | Must be `1`.                    |
 | `repos`   | list | yes      | At least one entry; see below. |
+| `cache`   | object | —      | See [`cache`](#cache). |
 
 ## `repos[]`
 
@@ -140,6 +141,19 @@ the Docker daemon (image pulls), and git push/clone.
 | `base_delay_ms` | int    | `500`          | Delay, in ms, before the first retry (and every retry under `fixed`). Must be `>= 0`. |
 | `max_delay_ms`  | int    | `30000`        | Caps any single retry delay, in ms. Must be `>= 0`. |
 | `exponent`      | float  | `2`            | Per-attempt delay multiplier under `exponential`. Must be `>= 0`. |
+
+## `cache`
+
+Controls where Wright persists partial progress from an interrupted
+issue-resolution attempt (turn limit hit, sandbox fault, or a failed
+commit/push/PR step), so the next attempt at the same issue resumes instead of
+re-spending LLM turns from scratch. Shared across every repo in this config
+file, since it's local daemon state rather than a per-repo behavior. See
+`internal/cache` for the resume mechanics.
+
+| Field | Type   | Default          | Notes |
+|-------|--------|-------------------|-------|
+| `dir` | string | `.wright/cache`   | Directory cached attempts are written under, one JSON file per issue. Relative paths resolve against the working directory `wright` is run from. Safe to delete by hand; a missing or corrupt entry just makes the next run start fresh. |
 
 ## Validation summary
 

@@ -141,6 +141,19 @@ Poller → Gate → (executor: Sandbox → Agent Runner → Verifier → loop) �
   working tree and `gitops` does the git work afterward, which is also why an
   agent-made commit would silently break the harness.
 
+- **`internal/cache`** (`Store`, `FileStore`) — persists partial progress from
+  an interrupted issue-resolution attempt (turn limit, verify exhaustion, or a
+  failed commit/push/PR step) as one JSON file per issue, so the next attempt
+  at the same issue resumes instead of re-spending LLM turns from scratch.
+  `Entry.Stage` records how far a cached attempt got and drives how
+  `run_exec.go` resumes it: `agent_incomplete` reapplies the cached diff into
+  a fresh sandbox and continues the cached agent conversation;
+  `verified_unpushed` reapplies the diff and redoes commit+push+PR without
+  re-invoking the agent; `pr_pending` needs no sandbox or agent at all — it
+  just retries the PR-open call against the already-pushed branch. This also
+  fixes what used to be a dead end: a PR-creation failure left a pushed branch
+  that the idempotency check in `run_exec.go` would otherwise skip forever.
+
 - **`internal/config`** — YAML schema (`wright.yaml`) and defaults
   (`applyDefaults`) / validation. `repos` is a list from day one (Phase 1 CLI
   commands operate on one entry) so adding multi-repo support later isn't a

@@ -15,6 +15,7 @@ import (
 	llmlogging "github.com/farzan-kh/wright/internal/agent/llm/logging"
 	"github.com/farzan-kh/wright/internal/agent/llm/openrouter"
 	"github.com/farzan-kh/wright/internal/agent/llm/retrying"
+	"github.com/farzan-kh/wright/internal/cache"
 	"github.com/farzan-kh/wright/internal/config"
 	"github.com/farzan-kh/wright/internal/gate"
 	"github.com/farzan-kh/wright/internal/logging"
@@ -59,6 +60,7 @@ func newRunCmd() *cobra.Command {
 				ProviderToken: providerToken,
 				LLM:           llmProvider,
 				Sandbox:       sb,
+				Cache:         &cache.FileStore{Dir: cfg.Cache.Dir},
 			}
 
 			pl := &pipeline.Pipeline{

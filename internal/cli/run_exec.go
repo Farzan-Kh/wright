@@ -5,12 +5,15 @@ package cli
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/farzan-kh/wright/internal/agent"
 	"github.com/farzan-kh/wright/internal/agent/llm"
+	"github.com/farzan-kh/wright/internal/cache"
 	"github.com/farzan-kh/wright/internal/config"
 	"github.com/farzan-kh/wright/internal/cost"
 	"github.com/farzan-kh/wright/internal/gitops"
@@ -28,12 +31,17 @@ type issueExecutor struct {
 	ProviderToken string
 	LLM           llm.LLMProvider
 	Sandbox       sandbox.Orchestrator
+	// Cache persists partial progress from an interrupted attempt so the
+	// next attempt at the same issue can resume rather than re-spending LLM
+	// turns from scratch. Nil disables caching entirely.
+	Cache cache.Store
 }
 
 func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.Summary, error) {
 	l := logging.FromContext(ctx).With("issue", issue.Number)
 	zeroCost := cost.Summary{}
 	branchName := gitops.BranchName(issue.Number)
+	repoKey := e.Repo.FullPath
 
 	existingPR, err := e.Provider.FindOpenPullRequestByHead(ctx, e.Repo, branchName)
 	if err != nil {
@@ -43,6 +51,7 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 		reason := fmt.Sprintf("idempotency: open PR already exists for %s (PR #%d %s)", branchName, existingPR.Number, existingPR.URL)
 		l.Info("executor: skipping issue", "reason", reason)
 		_ = e.Provider.CommentOnIssue(ctx, e.Repo, issue.Number, "Wright skipped this run because an open PR already exists for this issue branch:\n\n"+existingPR.URL)
+		e.clearCache(repoKey, issue.Number)
 		return zeroCost, pipeline.NewSkipError(reason)
 	}
 
@@ -65,6 +74,22 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 		return cost.Summary{}, fmt.Errorf("build authenticated remote url: %w", err)
 	}
 
+	cached := e.loadCache(l, repoKey, issue.Number)
+
+	ops := &gitops.Ops{
+		Provider:   e.Provider,
+		Repo:       e.Repo,
+		RemoteUser: gitRemoteUsername(e.RepoConfig.Provider),
+		Retry:      e.RepoConfig.Retry.ToRetryConfig(),
+	}
+
+	// A cached pr_pending attempt already has verified, committed, pushed
+	// code sitting on its branch: the only thing that failed was opening
+	// the PR. Resuming needs no sandbox or agent call at all.
+	if cached != nil && cached.Stage == cache.StagePRPending {
+		return e.resumePRPending(ctx, l, ops, repoKey, issue, *cached)
+	}
+
 	l.Debug("executor: starting sandbox", "image", e.RepoConfig.Sandbox.Image)
 	task, err := e.Sandbox.Start(ctx, sandbox.TaskSpec{
 		Image:      e.RepoConfig.Sandbox.Image,
@@ -81,6 +106,7 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 	defer func() {
 		_ = task.Close(context.Background())
 	}()
+	ops.Exec = task
 
 	branchExists, err := remoteBranchExists(ctx, task, branchName)
 	if err != nil {
@@ -90,6 +116,7 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 		reason := fmt.Sprintf("idempotency: branch %s already exists", branchName)
 		l.Info("executor: skipping issue", "reason", reason)
 		_ = e.Provider.CommentOnIssue(ctx, e.Repo, issue.Number, "Wright skipped this run because branch `"+branchName+"` already exists. If you want a retry, close/delete existing artifacts and re-apply the label.")
+		e.clearCache(repoKey, issue.Number)
 		return zeroCost, pipeline.NewSkipError(reason)
 	}
 
@@ -110,34 +137,56 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 		return cost.Summary{}, err
 	}
 
-	instrFile, instrContent, err := readRepoInstructions(ctx, task)
-	if err != nil {
-		return cost.Summary{}, err
-	}
-	if instrFile != "" {
-		l.Debug("executor: repo instructions found", "file", instrFile)
+	totalCost := zeroCost
+	skipToCommit := false
+	var verifyOut string
+
+	if cached != nil && strings.TrimSpace(cached.Diff) != "" {
+		if applyErr := applyCachedDiff(ctx, task, cached.Diff); applyErr != nil {
+			l.Info("executor: cached diff failed to apply, discarding cache and starting fresh", "error", applyErr.Error())
+			cached = nil
+		} else {
+			totalCost = cached.Cost
+			l.Info("executor: reapplied cached diff", "stage", cached.Stage)
+		}
 	}
 
-	systemPrompt := buildAgentSystemPrompt(issue, e.RepoConfig, baseBranch, verifyCmd, instrFile, instrContent)
-	history := buildAgentHistory(issue)
-	tools := []llm.ToolSpec{
-		{Type: "bash_20250124"},
-		{Type: "text_editor_20250728"},
-	}
-	totalCost := zeroCost
-	var verifyOut string
-	const maxVerifyAttempts = 3
-	for attempt := 1; attempt <= maxVerifyAttempts; attempt++ {
-		cfg := runner.Cfg
-		if cfg.MaxTurns > 0 {
-			remainingTurns := cfg.MaxTurns - totalCost.Turns
-			if remainingTurns <= 0 {
-				l.Error("executor: turn budget exhausted", "max_turns", runner.Cfg.MaxTurns)
-				return totalCost, agent.ErrTurnLimit
-			}
-			cfg.MaxTurns = remainingTurns
+	if cached != nil && cached.Stage == cache.StageVerifiedUnpushed {
+		// The diff already passed verify last time; confirm it still does
+		// in this fresh sandbox (no LLM cost) before skipping straight to
+		// commit+push+PR.
+		out, verr := task.Bash(ctx, verifyCmd)
+		if verr == nil {
+			verifyOut = out
+			skipToCommit = true
+			l.Info("executor: cached diff still verifies clean, skipping straight to commit+push+PR")
+		} else {
+			l.Info("executor: cached verified diff no longer passes verify, resuming agent instead", "error", verr.Error())
 		}
-		runner.Cfg = cfg
+	}
+
+	var history []llm.Message
+	var systemPrompt []llm.SystemBlock
+	if !skipToCommit {
+		if cached != nil && cached.Stage == cache.StageAgentIncomplete && len(cached.History) > 0 {
+			history = cached.History
+			systemPrompt = cached.System
+		} else {
+			instrFile, instrContent, err := readRepoInstructions(ctx, task)
+			if err != nil {
+				return cost.Summary{}, err
+			}
+			if instrFile != "" {
+				l.Debug("executor: repo instructions found", "file", instrFile)
+			}
+			systemPrompt = buildAgentSystemPrompt(issue, e.RepoConfig, baseBranch, verifyCmd, instrFile, instrContent)
+			history = buildAgentHistory(issue)
+		}
+
+		tools := []llm.ToolSpec{
+			{Type: "bash_20250124"},
+			{Type: "text_editor_20250728"},
+		}
 
 		l.Debug("executor: agent run started", "attempt", attempt, "remaining_turns", cfg.MaxTurns)
 		runResult, runErr := runner.Run(ctx, agent.RunRequest{System: systemPrompt, History: history, Tools: tools})
@@ -146,36 +195,55 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 			l.Error("executor: agent run failed", "attempt", attempt, "error", runErr.Error())
 			return totalCost, runErr
 		}
-		history = runResult.History
-		l.Debug("executor: agent run ok", "attempt", attempt, "stop_reason", runResult.StopReason, "turns", totalCost.Turns)
 
-		verifyOut, err = task.Bash(ctx, verifyCmd)
-		if err == nil {
-			l.Debug("executor: verify ok", "attempt", attempt, "command", verifyCmd)
-			break
+		const maxVerifyAttempts = 3
+		for attempt := 1; attempt <= maxVerifyAttempts; attempt++ {
+			cfg := runner.Cfg
+			if cfg.MaxTurns > 0 {
+				remainingTurns := cfg.MaxTurns - totalCost.Turns
+				if remainingTurns <= 0 {
+					l.Error("executor: turn budget exhausted", "max_turns", runner.Cfg.MaxTurns)
+					e.cacheIncomplete(ctx, l, task, repoKey, issue, branchName, baseBranch, systemPrompt, history, totalCost, verifyCmd, verifyOut, agent.ErrTurnLimit.Error())
+					return totalCost, agent.ErrTurnLimit
+				}
+				cfg.MaxTurns = remainingTurns
+			}
+			runner.Cfg = cfg
+
+			l.Debug("executor: agent run started", "attempt", attempt, "remaining_turns", cfg.MaxTurns)
+			runResult, runErr := runner.Run(ctx, agent.RunRequest{System: systemPrompt, History: history, Tools: tools})
+			totalCost = mergeCostSummary(totalCost, runResult.UsageAndCost)
+			if runErr != nil {
+				l.Error("executor: agent run failed", "attempt", attempt, "error", runErr.Error())
+				e.cacheIncomplete(ctx, l, task, repoKey, issue, branchName, baseBranch, systemPrompt, runResult.History, totalCost, verifyCmd, verifyOut, runErr.Error())
+				return totalCost, runErr
+			}
+			history = runResult.History
+			l.Debug("executor: agent run ok", "attempt", attempt, "stop_reason", runResult.StopReason, "turns", totalCost.Turns)
+
+			verifyOut, err = task.Bash(ctx, verifyCmd)
+			if err == nil {
+				l.Debug("executor: verify ok", "attempt", attempt, "command", verifyCmd)
+				break
+			}
+			l.Info("executor: verify failed", "attempt", attempt, "command", verifyCmd, "error", err.Error())
+			if attempt == maxVerifyAttempts {
+				e.cacheIncomplete(ctx, l, task, repoKey, issue, branchName, baseBranch, systemPrompt, history, totalCost, verifyCmd, verifyOut, fmt.Sprintf("verify failed after %d attempts: %s", attempt, err.Error()))
+				return totalCost, fmt.Errorf("verify failed after %d attempt(s) (%s): %w\n\n%s", attempt, verifyCmd, err, truncate(verifyOut, 8_000))
+			}
+			feedback := "Verification failed. Fix the implementation and run the tests again.\n\n" +
+				"Command: " + verifyCmd + "\n\nOutput:\n" + truncate(verifyOut, 8_000)
+			history = append(history, llm.Message{
+				Role:    "user",
+				Content: []llm.ContentBlock{{Type: "text", Text: feedback}},
+			})
 		}
-		l.Info("executor: verify failed", "attempt", attempt, "command", verifyCmd, "error", err.Error())
-		if attempt == maxVerifyAttempts {
-			return totalCost, fmt.Errorf("verify failed after %d attempt(s) (%s): %w\n\n%s", attempt, verifyCmd, err, truncate(verifyOut, 8_000))
-		}
-		feedback := "Verification failed. Fix the implementation and run the tests again.\n\n" +
-			"Command: " + verifyCmd + "\n\nOutput:\n" + truncate(verifyOut, 8_000)
-		history = append(history, llm.Message{
-			Role:    "user",
-			Content: []llm.ContentBlock{{Type: "text", Text: feedback}},
-		})
 	}
 
-	ops := &gitops.Ops{
-		Exec:       task,
-		Provider:   e.Provider,
-		Repo:       e.Repo,
-		RemoteUser: gitRemoteUsername(e.RepoConfig.Provider),
-		Retry:      e.RepoConfig.Retry.ToRetryConfig(),
-	}
 	commitTitle := fmt.Sprintf("wright: resolve issue #%d", issue.Number)
 	branch, diffSummary, err := ops.CommitAndPush(ctx, issue.Number, remoteURL, e.ProviderToken, commitTitle)
 	if err != nil {
+		e.cacheVerifiedUnpushed(ctx, l, task, repoKey, issue, branchName, baseBranch, verifyCmd, verifyOut, totalCost, err.Error())
 		return totalCost, err
 	}
 
@@ -183,14 +251,164 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 	prBody := buildPRBody(issue, diffSummary, verifyCmd, verifyOut)
 	pr, err := ops.OpenPR(ctx, prTitle, prBody, branch, baseBranch, false)
 	if err != nil {
+		e.cachePRPending(l, repoKey, issue, branch, baseBranch, diffSummary, verifyCmd, verifyOut, totalCost, err.Error())
 		return totalCost, err
 	}
 	l.Info("executor: PR opened", "pr", pr.Number, "url", pr.URL)
+	e.clearCache(repoKey, issue.Number)
 
 	_ = e.Provider.CommentOnIssue(ctx, e.Repo, issue.Number,
 		fmt.Sprintf("Wright opened PR #%d: %s", pr.Number, pr.URL))
 
 	return totalCost, nil
+}
+
+// resumePRPending retries opening the PR for an attempt that already got as
+// far as a verified, committed, pushed branch last time - no sandbox or
+// agent call needed, just another shot at the provider API call that failed.
+func (e *issueExecutor) resumePRPending(ctx context.Context, l *slog.Logger, ops *gitops.Ops, repoKey string, issue provider.Issue, cached cache.Entry) (cost.Summary, error) {
+	prTitle := fmt.Sprintf("Issue #%d: %s", issue.Number, truncate(strings.TrimSpace(issue.Title), 72))
+	prBody := buildPRBody(issue, cached.DiffSummary, cached.VerifyCmd, cached.VerifyOutput)
+	pr, err := ops.OpenPR(ctx, prTitle, prBody, cached.Branch, cached.BaseBranch, false)
+	if err != nil {
+		cached.Reason = err.Error()
+		cached.CachedAt = time.Now()
+		if e.Cache != nil {
+			_ = e.Cache.Save(cached)
+		}
+		return cached.Cost, err
+	}
+	l.Info("executor: PR opened from cached attempt", "pr", pr.Number, "url", pr.URL)
+	e.clearCache(repoKey, issue.Number)
+	_ = e.Provider.CommentOnIssue(ctx, e.Repo, issue.Number,
+		fmt.Sprintf("Wright opened PR #%d: %s", pr.Number, pr.URL))
+	return cached.Cost, nil
+}
+
+// loadCache returns the cached attempt for issue, or nil if none exists or
+// caching is disabled. A load error is logged and treated as no cache, so a
+// corrupt entry degrades to "start fresh" instead of blocking the run.
+func (e *issueExecutor) loadCache(l *slog.Logger, repoKey string, issueNumber int) *cache.Entry {
+	if e.Cache == nil {
+		return nil
+	}
+	entry, err := e.Cache.Load(repoKey, issueNumber)
+	if err != nil {
+		l.Info("executor: cache load failed, starting fresh", "error", err.Error())
+		return nil
+	}
+	if entry != nil {
+		l.Info("executor: resuming cached attempt", "stage", entry.Stage, "cached_at", entry.CachedAt)
+	}
+	return entry
+}
+
+func (e *issueExecutor) clearCache(repoKey string, issueNumber int) {
+	if e.Cache == nil {
+		return
+	}
+	_ = e.Cache.Clear(repoKey, issueNumber)
+}
+
+// cacheIncomplete persists a diff+conversation snapshot for an attempt that
+// didn't reach a verified state (turn limit, agent error, or verify
+// exhausted), so the next run on this issue picks the conversation back up
+// instead of re-spending turns from scratch. Best-effort throughout: any
+// failure to capture or persist just means the next run starts fresh, which
+// is no worse than today's behavior.
+func (e *issueExecutor) cacheIncomplete(ctx context.Context, l *slog.Logger, task sandbox.ToolExec, repoKey string, issue provider.Issue, branch, baseBranch string, system []llm.SystemBlock, history []llm.Message, totalCost cost.Summary, verifyCmd, verifyOut, reason string) {
+	if e.Cache == nil {
+		return
+	}
+	diff, err := captureDiff(ctx, task, baseBranch)
+	if err != nil {
+		l.Info("executor: cache: capture diff failed", "error", err.Error())
+		return
+	}
+	if strings.TrimSpace(diff) == "" {
+		return
+	}
+	if err := e.Cache.Save(cache.Entry{
+		Repo: repoKey, IssueNumber: issue.Number, Stage: cache.StageAgentIncomplete,
+		Reason: reason, Branch: branch, BaseBranch: baseBranch, Diff: diff,
+		System: system, History: history, Cost: totalCost,
+		VerifyCmd: verifyCmd, VerifyOutput: verifyOut, CachedAt: time.Now(),
+	}); err != nil {
+		l.Info("executor: cache: save failed", "error", err.Error())
+		return
+	}
+	l.Info("executor: cached incomplete attempt for resume", "reason", reason)
+}
+
+// cacheVerifiedUnpushed persists a diff that already passed verify but
+// couldn't be committed or pushed, so a resume can skip the agent entirely
+// and go straight back to the git steps.
+func (e *issueExecutor) cacheVerifiedUnpushed(ctx context.Context, l *slog.Logger, task sandbox.ToolExec, repoKey string, issue provider.Issue, branch, baseBranch, verifyCmd, verifyOut string, totalCost cost.Summary, reason string) {
+	if e.Cache == nil {
+		return
+	}
+	diff, err := captureDiff(ctx, task, baseBranch)
+	if err != nil {
+		l.Info("executor: cache: capture diff failed", "error", err.Error())
+		return
+	}
+	if strings.TrimSpace(diff) == "" {
+		return
+	}
+	if err := e.Cache.Save(cache.Entry{
+		Repo: repoKey, IssueNumber: issue.Number, Stage: cache.StageVerifiedUnpushed,
+		Reason: reason, Branch: branch, BaseBranch: baseBranch, Diff: diff,
+		Cost: totalCost, VerifyCmd: verifyCmd, VerifyOutput: verifyOut, CachedAt: time.Now(),
+	}); err != nil {
+		l.Info("executor: cache: save failed", "error", err.Error())
+		return
+	}
+	l.Info("executor: cached verified-but-unpushed attempt for resume", "reason", reason)
+}
+
+// cachePRPending persists a pushed-branch attempt whose PR creation failed.
+// No diff is needed: the branch already has the commit, so a resume only
+// needs to retry the provider PR-open call.
+func (e *issueExecutor) cachePRPending(l *slog.Logger, repoKey string, issue provider.Issue, branch, baseBranch, diffSummary, verifyCmd, verifyOut string, totalCost cost.Summary, reason string) {
+	if e.Cache == nil {
+		return
+	}
+	if err := e.Cache.Save(cache.Entry{
+		Repo: repoKey, IssueNumber: issue.Number, Stage: cache.StagePRPending,
+		Reason: reason, Branch: branch, BaseBranch: baseBranch, DiffSummary: diffSummary,
+		Cost: totalCost, VerifyCmd: verifyCmd, VerifyOutput: verifyOut, CachedAt: time.Now(),
+	}); err != nil {
+		l.Info("executor: cache: save failed", "error", err.Error())
+		return
+	}
+	l.Info("executor: cached pushed-but-no-PR attempt for resume", "reason", reason)
+}
+
+// captureDiff returns a unified diff of the sandbox's working tree (staged,
+// unstaged, and any locally committed-but-unpushed changes) against
+// baseBranch, so it can be replayed into a fresh sandbox later. Untracked
+// files only show up in `git diff` once staged, hence the `git add -A`
+// first; that's harmless here since the sandbox is about to be torn down
+// regardless of outcome.
+func captureDiff(ctx context.Context, exec sandbox.ToolExec, baseBranch string) (string, error) {
+	out, err := exec.Bash(ctx, "git add -A && git diff --cached "+shellQuote(baseBranch))
+	if err != nil {
+		return "", fmt.Errorf("capture diff against %s: %w", baseBranch, err)
+	}
+	return out, nil
+}
+
+// applyCachedDiff replays a diff captured by captureDiff into a freshly
+// cloned sandbox at the same base branch.
+func applyCachedDiff(ctx context.Context, exec sandbox.ToolExec, diff string) error {
+	const patchPath = ".wright-resume.patch"
+	if err := exec.WriteFile(ctx, patchPath, diff); err != nil {
+		return fmt.Errorf("write resume patch: %w", err)
+	}
+	if _, err := exec.Bash(ctx, "git apply --whitespace=nowarn "+shellQuote(patchPath)+" && rm -f "+shellQuote(patchPath)); err != nil {
+		return fmt.Errorf("apply resume patch: %w", err)
+	}
+	return nil
 }
 
 // defaultAgentBehaviorPrompt is the default identity/behavior guidance for the

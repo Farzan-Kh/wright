@@ -5,6 +5,13 @@
 
 version: 1
 
+# cache: where Wright persists partial progress from an interrupted
+# issue-resolution attempt (turn limit hit, sandbox fault, failed
+# commit/push/PR) so the next attempt resumes instead of re-spending LLM
+# turns from scratch. Shared across every repo below. Optional.
+# cache:
+#   dir: .wright/cache
+
 repos:
   - provider: github # "github" | "gitlab"
     repo: your-org/your-repo # GitLab: full project path, nested groups OK
