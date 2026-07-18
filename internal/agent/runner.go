@@ -13,14 +13,17 @@ import (
 	"github.com/farzan-kh/wright/internal/sandbox"
 )
 
-var ErrTurnLimit = errors.New("agent: max turns reached")
+var ErrBudgetExceeded = errors.New("agent: budget exceeded")
 
 // Config configures one bounded agent run.
 type Config struct {
-	Model       string
-	MaxTokens   int
-	MaxTurns    int
-	ThinkEffort string
+	Model          string
+	MaxTokens      int
+	MaxTurns       int
+	MaxTotalTokens int64
+	MaxUSD         float64
+	Rates          cost.RateTable
+	ThinkEffort    string
 }
 
 // Runner is the hand-written tool-use loop.
@@ -50,16 +53,33 @@ type RunResult struct {
 
 // Run executes the manual loop until end_turn, a hard limit, or an error.
 func (r *Runner) Run(ctx context.Context, req RunRequest) (RunResult, error) {
-	acc := cost.NewAccumulator(nil)
+	acc := cost.NewAccumulator(r.Cfg.Rates)
 	history := append([]llm.Message(nil), req.History...)
 	result := RunResult{History: history}
 
 	for {
-		if r.Cfg.MaxTurns > 0 && acc.Summary().Turns >= r.Cfg.MaxTurns {
+		s := acc.Summary()
+		if r.Cfg.MaxTurns > 0 && s.Turns >= r.Cfg.MaxTurns {
 			result.BudgetExceeded = true
 			result.BudgetReason = "max_turns"
-			result.UsageAndCost = acc.Summary()
-			return result, ErrTurnLimit
+			result.UsageAndCost = s
+			return result, ErrBudgetExceeded
+		}
+		if r.Cfg.MaxTotalTokens > 0 {
+			u := s.Usage
+			total := u.InputTokens + u.OutputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
+			if total >= r.Cfg.MaxTotalTokens {
+				result.BudgetExceeded = true
+				result.BudgetReason = "max_total_tokens"
+				result.UsageAndCost = s
+				return result, ErrBudgetExceeded
+			}
+		}
+		if r.Cfg.MaxUSD > 0 && s.USDKnown && s.USD >= r.Cfg.MaxUSD {
+			result.BudgetExceeded = true
+			result.BudgetReason = "max_usd"
+			result.UsageAndCost = s
+			return result, ErrBudgetExceeded
 		}
 
 		effort := r.Cfg.ThinkEffort
@@ -80,7 +100,7 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 		}
 
 		acc.Add(r.Cfg.Model, resp.Usage)
-		s := acc.Summary()
+		s = acc.Summary()
 
 		// Record the turn before any budget decision: the model's output (and its
 		// signed thinking blocks) belongs in history regardless of cost, and a turn

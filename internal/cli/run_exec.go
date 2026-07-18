@@ -154,10 +154,13 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 		LLM:  e.LLM,
 		Exec: task,
 		Cfg: agent.Config{
-			Model:       e.RepoConfig.LLM.AgentModel,
-			MaxTokens:   8192,
-			MaxTurns:    e.RepoConfig.Budget.MaxTurns,
-			ThinkEffort: e.RepoConfig.LLM.Effort,
+			Model:          e.RepoConfig.LLM.AgentModel,
+			MaxTokens:      8192,
+			MaxTurns:       e.RepoConfig.Budget.MaxTurns,
+			MaxTotalTokens: e.RepoConfig.Budget.MaxTotalTokens,
+			MaxUSD:         e.RepoConfig.Budget.MaxUSD,
+			Rates:          e.RepoConfig.LLM.ToRateTable(),
+			ThinkEffort:    e.RepoConfig.LLM.Effort,
 		},
 	}
 
@@ -224,8 +227,8 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 				remainingTurns := cfg.MaxTurns - totalCost.Turns
 				if remainingTurns <= 0 {
 					l.Error("executor: turn budget exhausted", "max_turns", runner.Cfg.MaxTurns)
-					e.cacheIncomplete(ctx, l, task, repoKey, issue, branchName, baseBranch, systemPrompt, history, totalCost, verifyCmd, verifyOut, agent.ErrTurnLimit.Error())
-					return totalCost, agent.ErrTurnLimit
+					e.cacheIncomplete(ctx, l, task, repoKey, issue, branchName, baseBranch, systemPrompt, history, totalCost, verifyCmd, verifyOut, agent.ErrBudgetExceeded.Error())
+					return totalCost, agent.ErrBudgetExceeded
 				}
 				cfg.MaxTurns = remainingTurns
 			}
