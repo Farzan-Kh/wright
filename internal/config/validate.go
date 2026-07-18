@@ -105,18 +105,26 @@ func (rc *RepoConfig) validate(idx int) []error {
 		errs = append(errs, p("llm.auth oauth is not supported for openrouter; use api_key"))
 	}
 
-	// Validate rates: all values must be non-negative.
+	// Validate rates: all values must be non-negative and finite.
 	for modelID, r := range rc.LLM.Rates {
-		if r.InputPerMTok < 0 {
+		if r.InputPerMTok*0 != 0 {
+			errs = append(errs, p("llm.rates[%q].input_per_mtok must be finite, got %v", modelID, r.InputPerMTok))
+		} else if r.InputPerMTok < 0 {
 			errs = append(errs, p("llm.rates[%q].input_per_mtok must be >= 0, got %v", modelID, r.InputPerMTok))
 		}
-		if r.OutputPerMTok < 0 {
+		if r.OutputPerMTok*0 != 0 {
+			errs = append(errs, p("llm.rates[%q].output_per_mtok must be finite, got %v", modelID, r.OutputPerMTok))
+		} else if r.OutputPerMTok < 0 {
 			errs = append(errs, p("llm.rates[%q].output_per_mtok must be >= 0, got %v", modelID, r.OutputPerMTok))
 		}
-		if r.CacheReadPerMTok < 0 {
+		if r.CacheReadPerMTok*0 != 0 {
+			errs = append(errs, p("llm.rates[%q].cache_read_per_mtok must be finite, got %v", modelID, r.CacheReadPerMTok))
+		} else if r.CacheReadPerMTok < 0 {
 			errs = append(errs, p("llm.rates[%q].cache_read_per_mtok must be >= 0, got %v", modelID, r.CacheReadPerMTok))
 		}
-		if r.CacheWritePerMTok < 0 {
+		if r.CacheWritePerMTok*0 != 0 {
+			errs = append(errs, p("llm.rates[%q].cache_write_per_mtok must be finite, got %v", modelID, r.CacheWritePerMTok))
+		} else if r.CacheWritePerMTok < 0 {
 			errs = append(errs, p("llm.rates[%q].cache_write_per_mtok must be >= 0, got %v", modelID, r.CacheWritePerMTok))
 		}
 	}
