@@ -58,7 +58,7 @@ type stackedDependency struct {
 
 func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.Summary, error) {
 	l := logging.FromContext(ctx).With("issue", issue.Number)
-	zeroCost := cost.Summary{}
+	zeroCost := cost.Summary{USDKnown: true}
 	branchName := gitops.BranchName(issue.Number)
 	repoKey := e.Repo.FullPath
 
@@ -231,6 +231,22 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 					return totalCost, agent.ErrBudgetExceeded
 				}
 				cfg.MaxTurns = remainingTurns
+			}
+			if cfg.MaxTotalTokens > 0 {
+				u := totalCost.Usage
+				consumed := u.InputTokens + u.OutputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
+				remaining := cfg.MaxTotalTokens - consumed
+				if remaining <= 0 {
+					l.Error("executor: token budget exhausted", "max_total_tokens", runner.Cfg.MaxTotalTokens)
+					e.cacheIncomplete(ctx, l, task, repoKey, issue, branchName, baseBranch, systemPrompt, history, totalCost, verifyCmd, verifyOut, agent.ErrBudgetExceeded.Error())
+					return totalCost, agent.ErrBudgetExceeded
+				}
+				cfg.MaxTotalTokens = remaining
+			}
+			if cfg.MaxUSD > 0 && totalCost.USDKnown && totalCost.USD >= cfg.MaxUSD {
+				l.Error("executor: USD budget exhausted", "max_usd", runner.Cfg.MaxUSD)
+				e.cacheIncomplete(ctx, l, task, repoKey, issue, branchName, baseBranch, systemPrompt, history, totalCost, verifyCmd, verifyOut, agent.ErrBudgetExceeded.Error())
+				return totalCost, agent.ErrBudgetExceeded
 			}
 			runner.Cfg = cfg
 
