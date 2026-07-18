@@ -184,7 +184,7 @@ func (g *Gate) checkWithTools(ctx context.Context, userPrompt string) (Verdict, 
 		maxTurns = DefaultMaxToolTurns
 	}
 
-	acc := cost.NewAccumulator()
+	acc := cost.NewAccumulator(nil)
 	history := []llm.Message{{Role: "user", Content: []llm.ContentBlock{{Type: "text", Text: userPrompt}}}}
 	system := []llm.SystemBlock{{Text: basePrompt + toolGuidance}}
 	tools := []llm.ToolSpec{{Type: "repo_read_file"}, {Type: "repo_list_dir"}}
@@ -201,7 +201,7 @@ func (g *Gate) checkWithTools(ctx context.Context, userPrompt string) (Verdict, 
 		if err != nil {
 			return Verdict{}, acc.Summary().Usage, err
 		}
-		acc.Add(resp.Usage)
+		acc.Add(g.Model, resp.Usage)
 		history = append(history, resp.Message)
 
 		if resp.StopReason != "tool_use" {
@@ -230,7 +230,7 @@ func (g *Gate) checkWithTools(ctx context.Context, userPrompt string) (Verdict, 
 	if err != nil {
 		return Verdict{}, acc.Summary().Usage, err
 	}
-	acc.Add(resp.Usage)
+	acc.Add(g.Model, resp.Usage)
 	v, err := parseVerdict(resp.Message)
 	return v, acc.Summary().Usage, err
 }

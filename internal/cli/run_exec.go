@@ -141,7 +141,7 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 
 		l.Debug("executor: agent run started", "attempt", attempt, "remaining_turns", cfg.MaxTurns)
 		runResult, runErr := runner.Run(ctx, agent.RunRequest{System: systemPrompt, History: history, Tools: tools})
-		totalCost = mergeCostSummary(totalCost, runResult.UsageAndCost)
+		totalCost.Merge(runResult.UsageAndCost)
 		if runErr != nil {
 			l.Error("executor: agent run failed", "attempt", attempt, "error", runErr.Error())
 			return totalCost, runErr
@@ -353,15 +353,6 @@ func remoteBranchExists(ctx context.Context, exec sandbox.ToolExec, branch strin
 
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
-}
-
-func mergeCostSummary(a, b cost.Summary) cost.Summary {
-	a.Turns += b.Turns
-	a.Usage.InputTokens += b.Usage.InputTokens
-	a.Usage.OutputTokens += b.Usage.OutputTokens
-	a.Usage.CacheCreationInputTokens += b.Usage.CacheCreationInputTokens
-	a.Usage.CacheReadInputTokens += b.Usage.CacheReadInputTokens
-	return a
 }
 
 func gitRemoteUsername(providerName string) string {

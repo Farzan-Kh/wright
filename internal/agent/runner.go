@@ -50,7 +50,7 @@ type RunResult struct {
 
 // Run executes the manual loop until end_turn, a hard limit, or an error.
 func (r *Runner) Run(ctx context.Context, req RunRequest) (RunResult, error) {
-	acc := cost.NewAccumulator()
+	acc := cost.NewAccumulator(nil)
 	history := append([]llm.Message(nil), req.History...)
 	result := RunResult{History: history}
 
@@ -79,7 +79,7 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 			return result, err
 		}
 
-		acc.Add(resp.Usage)
+		acc.Add(r.Cfg.Model, resp.Usage)
 		s := acc.Summary()
 
 		// Record the turn before any budget decision: the model's output (and its

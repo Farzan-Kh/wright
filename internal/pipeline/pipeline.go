@@ -68,10 +68,10 @@ func (p *Pipeline) RunOnce(ctx context.Context) ([]IssueReport, error) {
 		il := l.With("issue", iss.Number)
 		il.Debug("pipeline: issue picked up")
 		rep := IssueReport{IssueNumber: iss.Number}
-		total := cost.NewAccumulator()
+		total := cost.NewAccumulator(nil)
 
 		v, gateUsage, err := p.Gate.CheckWithUsage(ctx, iss)
-		total.Add(gateUsage)
+		total.Add("", gateUsage)
 		if err != nil {
 			rep.Status = "error"
 			rep.Detail = "gate: " + err.Error()
@@ -105,7 +105,9 @@ func (p *Pipeline) RunOnce(ctx context.Context) ([]IssueReport, error) {
 
 		il.Debug("pipeline: gate passed, starting execution")
 		execSummary, err := p.OnReady(ctx, iss)
-		rep.Cost = mergeCost(total.Summary(), execSummary)
+		totalS := total.Summary()
+		totalS.Merge(execSummary)
+		rep.Cost = totalS
 		if err != nil {
 			var skip *SkipError
 			if errors.As(err, &skip) {
@@ -130,13 +132,4 @@ func (p *Pipeline) RunOnce(ctx context.Context) ([]IssueReport, error) {
 		reports = append(reports, rep)
 	}
 	return reports, nil
-}
-
-func mergeCost(a, b cost.Summary) cost.Summary {
-	a.Turns += b.Turns
-	a.Usage.InputTokens += b.Usage.InputTokens
-	a.Usage.OutputTokens += b.Usage.OutputTokens
-	a.Usage.CacheCreationInputTokens += b.Usage.CacheCreationInputTokens
-	a.Usage.CacheReadInputTokens += b.Usage.CacheReadInputTokens
-	return a
 }
