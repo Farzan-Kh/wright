@@ -53,12 +53,98 @@ func TestRunStopsAtTurnCap(t *testing.T) {
 		Exec: &sandbox.FakeExec{},
 		Cfg:  Config{Model: "claude-haiku-4-5", MaxTurns: 1},
 	}
-	_, err := r.Run(context.Background(), RunRequest{
+	result, err := r.Run(context.Background(), RunRequest{
 		History: []llm.Message{{Role: "user", Content: []llm.ContentBlock{{Type: "text", Text: "hi"}}}},
 		Tools:   []llm.ToolSpec{{Type: "bash_20250124"}},
 	})
-	if !errors.Is(err, ErrTurnLimit) {
-		t.Fatalf("err = %v, want ErrTurnLimit", err)
+	if !errors.Is(err, ErrBudgetExceeded) {
+		t.Fatalf("err = %v, want ErrBudgetExceeded", err)
+	}
+	if result.BudgetReason != "max_turns" {
+		t.Fatalf("BudgetReason = %q, want max_turns", result.BudgetReason)
+	}
+}
+
+func TestRunStopsAtMaxTotalTokens(t *testing.T) {
+	// Each response uses 100 input + 100 output tokens = 200 total.
+	// With MaxTotalTokens=250, the runner stops after two completed turns
+	// (total=400) before making a third API call.
+	fake := &llm.FakeProvider{Responses: []llm.MessageResponse{
+		{
+			Message: llm.Message{Role: "assistant", Content: []llm.ContentBlock{{
+				Type: "tool_use", ToolUseID: "t1", Name: "bash",
+				Input: map[string]any{"command": "echo ok"},
+			}}},
+			StopReason: "tool_use",
+			Usage:      cost.Usage{InputTokens: 100, OutputTokens: 100},
+		},
+		{
+			Message: llm.Message{Role: "assistant", Content: []llm.ContentBlock{{
+				Type: "tool_use", ToolUseID: "t2", Name: "bash",
+				Input: map[string]any{"command": "echo ok"},
+			}}},
+			StopReason: "tool_use",
+			Usage:      cost.Usage{InputTokens: 100, OutputTokens: 100},
+		},
+	}}
+	r := &Runner{
+		LLM:  fake,
+		Exec: &sandbox.FakeExec{},
+		Cfg:  Config{Model: "claude-haiku-4-5", MaxTotalTokens: 250},
+	}
+	result, err := r.Run(context.Background(), RunRequest{
+		History: []llm.Message{{Role: "user", Content: []llm.ContentBlock{{Type: "text", Text: "hi"}}}},
+		Tools:   []llm.ToolSpec{{Type: "bash_20250124"}},
+	})
+	if !errors.Is(err, ErrBudgetExceeded) {
+		t.Fatalf("err = %v, want ErrBudgetExceeded", err)
+	}
+	if result.BudgetReason != "max_total_tokens" {
+		t.Fatalf("BudgetReason = %q, want max_total_tokens", result.BudgetReason)
+	}
+}
+
+func TestRunStopsAtMaxUSD(t *testing.T) {
+	// Rates: $8/MTok input, $24/MTok output (Claude Sonnet 4.5 approximate).
+	// Each response uses 100 input + 100 output tokens.
+	// Per-turn cost: (100/1e6 * 8) + (100/1e6 * 24) = 0.0008 + 0.0024 = 0.0032 USD.
+	// With MaxUSD=0.004 and MaxTurns=0 (unlimited), the runner stops after two
+	// completed turns (cumulative 0.0064 USD) before making a third API call.
+	rates := cost.RateTable{
+		"claude-haiku-4-5": {InputPerMTok: 8, OutputPerMTok: 24},
+	}
+	fake := &llm.FakeProvider{Responses: []llm.MessageResponse{
+		{
+			Message: llm.Message{Role: "assistant", Content: []llm.ContentBlock{{
+				Type: "tool_use", ToolUseID: "t1", Name: "bash",
+				Input: map[string]any{"command": "echo ok"},
+			}}},
+			StopReason: "tool_use",
+			Usage:      cost.Usage{InputTokens: 100, OutputTokens: 100},
+		},
+		{
+			Message: llm.Message{Role: "assistant", Content: []llm.ContentBlock{{
+				Type: "tool_use", ToolUseID: "t2", Name: "bash",
+				Input: map[string]any{"command": "echo ok"},
+			}}},
+			StopReason: "tool_use",
+			Usage:      cost.Usage{InputTokens: 100, OutputTokens: 100},
+		},
+	}}
+	r := &Runner{
+		LLM:  fake,
+		Exec: &sandbox.FakeExec{},
+		Cfg:  Config{Model: "claude-haiku-4-5", MaxUSD: 0.004, Rates: rates},
+	}
+	result, err := r.Run(context.Background(), RunRequest{
+		History: []llm.Message{{Role: "user", Content: []llm.ContentBlock{{Type: "text", Text: "hi"}}}},
+		Tools:   []llm.ToolSpec{{Type: "bash_20250124"}},
+	})
+	if !errors.Is(err, ErrBudgetExceeded) {
+		t.Fatalf("err = %v, want ErrBudgetExceeded", err)
+	}
+	if result.BudgetReason != "max_usd" {
+		t.Fatalf("BudgetReason = %q, want max_usd", result.BudgetReason)
 	}
 }
 

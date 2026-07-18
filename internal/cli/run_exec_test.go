@@ -616,8 +616,8 @@ func TestIssueExecutorHandleCachesOnTurnLimitAndResumes(t *testing.T) {
 	}
 
 	_, err := execA.Handle(context.Background(), issue)
-	if !errors.Is(err, agent.ErrTurnLimit) {
-		t.Fatalf("Handle phase A err = %v, want agent.ErrTurnLimit", err)
+	if !errors.Is(err, agent.ErrBudgetExceeded) {
+		t.Fatalf("Handle phase A err = %v, want agent.ErrBudgetExceeded", err)
 	}
 
 	entry, loadErr := store.Load(repo.FullPath, issue.Number)
