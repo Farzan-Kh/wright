@@ -1,0 +1,15 @@
+version: 1
+repos:
+  - provider: github
+    repo: acme/widgets
+    budget:
+      max_turns: 30
+      max_usd: 5.00
+    llm:
+      provider: claude
+      agent_model: claude-sonnet-5
+      gate_model: claude-haiku-4-5
+      rates:
+        claude-sonnet-5:
+          input_per_mtok: 3.00
+          output_per_mtok: 15.00

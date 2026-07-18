@@ -68,6 +68,12 @@ func (rc *RepoConfig) validate(idx int) []error {
 	if rc.Budget.MaxTurns < 0 {
 		errs = append(errs, p("budget.max_turns must be >= 0, got %d", rc.Budget.MaxTurns))
 	}
+	if rc.Budget.MaxTotalTokens < 0 {
+		errs = append(errs, p("budget.max_total_tokens must be >= 0, got %d", rc.Budget.MaxTotalTokens))
+	}
+	if rc.Budget.MaxUSD < 0 {
+		errs = append(errs, p("budget.max_usd must be >= 0, got %v", rc.Budget.MaxUSD))
+	}
 
 	if strings.TrimSpace(rc.LLM.Provider) == "" {
 		errs = append(errs, p("llm.provider must not be empty"))
@@ -95,6 +101,36 @@ func (rc *RepoConfig) validate(idx int) []error {
 
 	if rc.LLM.Provider == LLMProviderOpenRouter && rc.LLM.Auth == "oauth" {
 		errs = append(errs, p("llm.auth oauth is not supported for openrouter; use api_key"))
+	}
+
+	// Validate rates: all values must be non-negative.
+	for modelID, r := range rc.LLM.Rates {
+		if r.InputPerMTok < 0 {
+			errs = append(errs, p("llm.rates[%q].input_per_mtok must be >= 0, got %v", modelID, r.InputPerMTok))
+		}
+		if r.OutputPerMTok < 0 {
+			errs = append(errs, p("llm.rates[%q].output_per_mtok must be >= 0, got %v", modelID, r.OutputPerMTok))
+		}
+		if r.CacheReadPerMTok < 0 {
+			errs = append(errs, p("llm.rates[%q].cache_read_per_mtok must be >= 0, got %v", modelID, r.CacheReadPerMTok))
+		}
+		if r.CacheWritePerMTok < 0 {
+			errs = append(errs, p("llm.rates[%q].cache_write_per_mtok must be >= 0, got %v", modelID, r.CacheWritePerMTok))
+		}
+	}
+
+	// When max_usd > 0, rates must be configured for both agent_model and gate_model.
+	if rc.Budget.MaxUSD > 0 {
+		if rc.LLM.Rates == nil {
+			errs = append(errs, p("budget.max_usd > 0 requires llm.rates, but none are configured"))
+		} else {
+			if _, ok := rc.LLM.Rates[rc.LLM.AgentModel]; !ok {
+				errs = append(errs, p("budget.max_usd > 0 requires a rates entry for llm.agent_model %q", rc.LLM.AgentModel))
+			}
+			if _, ok := rc.LLM.Rates[rc.LLM.GateModel]; !ok {
+				errs = append(errs, p("budget.max_usd > 0 requires a rates entry for llm.gate_model %q", rc.LLM.GateModel))
+			}
+		}
 	}
 
 	if strings.TrimSpace(rc.Prompt.SystemAppend) != "" && strings.TrimSpace(rc.Prompt.SystemOverride) != "" {

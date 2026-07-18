@@ -133,6 +133,37 @@ func TestLoadValid(t *testing.T) {
 			t.Fatalf("gate_model = %q", rc.LLM.GateModel)
 		}
 	})
+
+	t.Run("with_rates_and_budget_fields", func(t *testing.T) {
+		c, err := Load(filepath.Join("testdata", "valid_with_rates.yaml"))
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		rc := c.Repos[0]
+		if rc.Budget.MaxTurns != 30 {
+			t.Errorf("budget.max_turns = %d, want 30", rc.Budget.MaxTurns)
+		}
+		if rc.Budget.MaxTotalTokens != 100000 {
+			t.Errorf("budget.max_total_tokens = %d, want 100000", rc.Budget.MaxTotalTokens)
+		}
+		if rc.Budget.MaxUSD != 5.00 {
+			t.Errorf("budget.max_usd = %v, want 5.00", rc.Budget.MaxUSD)
+		}
+		if len(rc.LLM.Rates) != 2 {
+			t.Fatalf("llm.rates: got %d entries, want 2", len(rc.LLM.Rates))
+		}
+		sonnet, ok := rc.LLM.Rates["claude-sonnet-5"]
+		if !ok {
+			t.Fatal("missing rates entry for claude-sonnet-5")
+		}
+		if sonnet.InputPerMTok != 3.00 || sonnet.OutputPerMTok != 15.00 {
+			t.Errorf("sonnet rates = %+v", sonnet)
+		}
+		haiku := rc.LLM.Rates["claude-haiku-4-5"]
+		if haiku.InputPerMTok != 0.80 || haiku.OutputPerMTok != 4.00 {
+			t.Errorf("haiku rates = %+v", haiku)
+		}
+	})
 }
 
 func TestLoadInvalid(t *testing.T) {
@@ -154,6 +185,9 @@ func TestLoadInvalid(t *testing.T) {
 		{"openrouter_oauth_invalid.yaml", "oauth is not supported for openrouter"},
 		{"prompt_append_and_override.yaml", "prompt.system_append and prompt.system_override are mutually exclusive"},
 		{"bad_retry_strategy.yaml", "retry.strategy \"linear\" is not exponential|fixed"},
+		{"negative_rates.yaml", "input_per_mtok must be >= 0"},
+		{"missing_gate_rate.yaml", "requires a rates entry for llm.gate_model"},
+		{"max_usd_no_rates.yaml", "budget.max_usd > 0 requires llm.rates"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.file, func(t *testing.T) {
