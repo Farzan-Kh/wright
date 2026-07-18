@@ -8,6 +8,7 @@ package config
 import (
 	"time"
 
+	"github.com/farzan-kh/wright/internal/cost"
 	"github.com/farzan-kh/wright/internal/retry"
 )
 
@@ -111,10 +112,19 @@ type RepoConfig struct {
 	Stacking StackingConfig `yaml:"stacking"`
 }
 
-// BudgetConfig bounds the number of agent turns spent resolving a single
-// issue.
+// BudgetConfig bounds the number of agent turns and total cost spent
+// resolving a single issue.
 type BudgetConfig struct {
 	MaxTurns int `yaml:"max_turns"`
+
+	// MaxTotalTokens caps the total LLM tokens (input + output + cache)
+	// across all turns for a single issue. 0 = unlimited.
+	MaxTotalTokens int64 `yaml:"max_total_tokens"`
+
+	// MaxUSD caps the total USD cost across all turns for a single issue.
+	// 0 = not enforced. When > 0, rates must be configured for both
+	// llm.agent_model and llm.gate_model.
+	MaxUSD float64 `yaml:"max_usd"`
 }
 
 // LLMConfig selects the LLM provider, auth, and models.
@@ -134,6 +144,46 @@ type LLMConfig struct {
 	Effort     string `yaml:"effort"`
 
 	OAuth OAuthConfig `yaml:"oauth"`
+
+	// Rates maps model id -> per-model pricing in $/MTok.
+	// Cache rates default to 0.10 * InputPerMTok (read) and
+	// 1.25 * InputPerMTok (write) when left at 0.
+	Rates map[string]RatesConfig `yaml:"rates"`
+}
+
+// RatesConfig configures per-model token pricing in $/MTok.
+type RatesConfig struct {
+	InputPerMTok      float64 `yaml:"input_per_mtok"`
+	OutputPerMTok     float64 `yaml:"output_per_mtok"`
+	CacheReadPerMTok  float64 `yaml:"cache_read_per_mtok"`
+	CacheWritePerMTok float64 `yaml:"cache_write_per_mtok"`
+}
+
+// ToRateTable converts the user-facing RatesConfig map into a cost.RateTable,
+// applying the cache-rate defaults (0.10 and 1.25 multipliers) for entries
+// where cache rates are left at 0.
+func (lc LLMConfig) ToRateTable() cost.RateTable {
+	if lc.Rates == nil {
+		return nil
+	}
+	rt := make(cost.RateTable, len(lc.Rates))
+	for id, rc := range lc.Rates {
+		cr := rc.CacheReadPerMTok
+		if cr == 0 {
+			cr = 0.10 * rc.InputPerMTok
+		}
+		cw := rc.CacheWritePerMTok
+		if cw == 0 {
+			cw = 1.25 * rc.InputPerMTok
+		}
+		rt[id] = cost.Rates{
+			InputPerMTok:      rc.InputPerMTok,
+			OutputPerMTok:     rc.OutputPerMTok,
+			CacheReadPerMTok:  cr,
+			CacheWritePerMTok: cw,
+		}
+	}
+	return rt
 }
 
 // OAuthConfig configures OAuth/subscription auth material.
