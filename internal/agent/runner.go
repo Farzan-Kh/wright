@@ -17,9 +17,9 @@ var ErrTurnLimit = errors.New("agent: max turns reached")
 
 // Config configures one bounded agent run.
 type Config struct {
-	Model       string
-	MaxTokens   int
-	MaxTurns    int
+	Model     string
+	MaxTokens int
+	MaxTurns  int
 	// MaxTotalTokens caps the total LLM tokens (input + output + cache)
 	// across all turns. 0 = unlimited.
 	MaxTotalTokens int64

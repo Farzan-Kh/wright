@@ -158,13 +158,13 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 		LLM:  e.LLM,
 		Exec: task,
 		Cfg: agent.Config{
-			Model:       e.RepoConfig.LLM.AgentModel,
-			MaxTokens:   8192,
-			MaxTurns:    e.RepoConfig.Budget.MaxTurns,
+			Model:          e.RepoConfig.LLM.AgentModel,
+			MaxTokens:      8192,
+			MaxTurns:       e.RepoConfig.Budget.MaxTurns,
 			MaxTotalTokens: e.RepoConfig.Budget.MaxTotalTokens,
-			MaxUSD:      e.RepoConfig.Budget.MaxUSD,
-			RateTable:   e.RateTable,
-			ThinkEffort: e.RepoConfig.LLM.Effort,
+			MaxUSD:         e.RepoConfig.Budget.MaxUSD,
+			RateTable:      e.RateTable,
+			ThinkEffort:    e.RepoConfig.LLM.Effort,
 		},
 	}
 
