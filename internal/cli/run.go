@@ -71,6 +71,7 @@ func newRunCmd() *cobra.Command {
 				Stack:         stackStore,
 			}
 
+			rateTable := rc.LLM.ToRateTable()
 			pl := &pipeline.Pipeline{
 				Provider:        p,
 				Repo:            repo,
@@ -80,6 +81,7 @@ func newRunCmd() *cobra.Command {
 				Gate: &gate.Gate{
 					LLM: llmProvider, Model: rc.LLM.GateModel, MaxTokens: 512,
 					Provider: p, Repo: repo, MaxToolTurns: gate.DefaultMaxToolTurns,
+					Rates: rateTable,
 				},
 				OnReady: exec.Handle,
 			}
@@ -158,10 +160,14 @@ func printRunReports(w io.Writer, rc *config.RepoConfig, reports []pipeline.Issu
 		return
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "#\tSTATUS\tDETAIL\tTURNS\tTOKENS(in/out)")
+	fmt.Fprintln(tw, "#\tSTATUS\tDETAIL\tTURNS\tTOKENS(in/out)\tUSD")
 	for _, r := range reports {
 		tokens := fmt.Sprintf("%d/%d", r.Cost.Usage.InputTokens, r.Cost.Usage.OutputTokens)
-		fmt.Fprintf(tw, "%d\t%s\t%s\t%d\t%s\n", r.IssueNumber, r.Status, r.Detail, r.Cost.Turns, tokens)
+		usd := "n/a"
+		if r.Cost.USDKnown {
+			usd = fmt.Sprintf("$%.4f", r.Cost.USD)
+		}
+		fmt.Fprintf(tw, "%d\t%s\t%s\t%d\t%s\t%s\n", r.IssueNumber, r.Status, r.Detail, r.Cost.Turns, tokens, usd)
 	}
 	_ = tw.Flush()
 }
