@@ -13,10 +13,10 @@ type Usage struct {
 
 // Summary is an immutable snapshot of accumulated usage.
 type Summary struct {
-	Turns     int
-	Usage     Usage
-	USD       float64
-	USDKnown  bool
+	Turns    int
+	Usage    Usage
+	USD      float64
+	USDKnown bool
 }
 
 // Rates is $/MTok for one model, supplied by the user in config.
