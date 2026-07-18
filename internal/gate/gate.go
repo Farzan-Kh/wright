@@ -50,6 +50,9 @@ type Gate struct {
 	Repo     provider.Repo
 	// MaxToolTurns bounds the repo-browsing tool loop. Zero uses DefaultMaxToolTurns.
 	MaxToolTurns int
+	// Rates is the rate table for cost tracking; when set, CheckWithUsage
+	// returns a Summary with populated USD. A nil table disables USD tracking.
+	Rates cost.RateTable
 }
 
 const basePrompt = "You are triaging a software issue before an autonomous coding agent attempts it. " +
@@ -79,21 +82,21 @@ func (g *Gate) Check(ctx context.Context, issue provider.Issue) (Verdict, error)
 	return v, err
 }
 
-// CheckWithUsage runs issue triage and also returns token usage for cost accounting.
-func (g *Gate) CheckWithUsage(ctx context.Context, issue provider.Issue) (Verdict, cost.Usage, error) {
+// CheckWithUsage runs issue triage and also returns a cost summary.
+func (g *Gate) CheckWithUsage(ctx context.Context, issue provider.Issue) (Verdict, cost.Summary, error) {
 	l := logging.FromContext(ctx).With("issue", issue.Number)
 	l.Debug("gate check started", "has_provider", g.Provider != nil)
 
-	v, usage, err := g.checkWithUsage(ctx, issue)
+	v, summary, err := g.checkWithUsage(ctx, issue)
 	if err != nil {
 		l.Error("gate check failed", "error", err.Error())
 	} else {
 		l.Debug("gate verdict", "ready", v.Ready, "missing", v.Missing)
 	}
-	return v, usage, err
+	return v, summary, err
 }
 
-func (g *Gate) checkWithUsage(ctx context.Context, issue provider.Issue) (Verdict, cost.Usage, error) {
+func (g *Gate) checkWithUsage(ctx context.Context, issue provider.Issue) (Verdict, cost.Summary, error) {
 	userPrompt := "Title: " + issue.Title + "\n\nBody:\n" + issue.Body
 	if comments := issue.FormatComments(); comments != "" {
 		userPrompt += "\n\nComments:\n" + comments
@@ -175,7 +178,7 @@ func (g *Gate) resolveReferences(ctx context.Context, issue provider.Issue) stri
 // combined into one message, matching the plain-text-only behavior used when
 // no Provider is configured (and as a fallback when the repo's default
 // branch can't be resolved).
-func (g *Gate) checkOnce(ctx context.Context, systemPrompt, userPrompt string) (Verdict, cost.Usage, error) {
+func (g *Gate) checkOnce(ctx context.Context, systemPrompt, userPrompt string) (Verdict, cost.Summary, error) {
 	resp, err := g.LLM.CreateMessage(ctx, llm.MessageRequest{
 		Model:      g.Model,
 		MaxTokens:  g.MaxTokens,
@@ -186,16 +189,18 @@ func (g *Gate) checkOnce(ctx context.Context, systemPrompt, userPrompt string) (
 		}},
 	})
 	if err != nil {
-		return Verdict{}, cost.Usage{}, err
+		return Verdict{}, cost.Summary{}, err
 	}
+	acc := cost.NewAccumulator(g.Rates)
+	acc.Add(g.Model, resp.Usage)
 	v, err := parseVerdict(resp.Message)
-	return v, resp.Usage, err
+	return v, acc.Summary(), err
 }
 
 // checkWithTools runs the bounded repo-browsing tool loop: the model may call
 // repo_read_file/repo_list_dir up to MaxToolTurns times before it must return
 // a final verdict.
-func (g *Gate) checkWithTools(ctx context.Context, userPrompt string) (Verdict, cost.Usage, error) {
+func (g *Gate) checkWithTools(ctx context.Context, userPrompt string) (Verdict, cost.Summary, error) {
 	ref, err := g.Provider.DefaultBranch(ctx, g.Repo)
 	if err != nil {
 		// Can't browse the repo without a ref; fall back to a plain triage call
@@ -208,7 +213,7 @@ func (g *Gate) checkWithTools(ctx context.Context, userPrompt string) (Verdict, 
 		maxTurns = DefaultMaxToolTurns
 	}
 
-	acc := cost.NewAccumulator(nil)
+	acc := cost.NewAccumulator(g.Rates)
 	history := []llm.Message{{Role: "user", Content: []llm.ContentBlock{{Type: "text", Text: userPrompt}}}}
 	system := []llm.SystemBlock{{Text: basePrompt + toolGuidance}}
 	tools := []llm.ToolSpec{{Type: "repo_read_file"}, {Type: "repo_list_dir"}}
@@ -223,19 +228,19 @@ func (g *Gate) checkWithTools(ctx context.Context, userPrompt string) (Verdict, 
 			Tools:      tools,
 		})
 		if err != nil {
-			return Verdict{}, acc.Summary().Usage, err
+			return Verdict{}, acc.Summary(), err
 		}
 		acc.Add(g.Model, resp.Usage)
 		history = append(history, resp.Message)
 
 		if resp.StopReason != "tool_use" {
 			v, err := parseVerdict(resp.Message)
-			return v, acc.Summary().Usage, err
+			return v, acc.Summary(), err
 		}
 
 		toolResults, err := g.runTools(ctx, ref, resp.Message)
 		if err != nil {
-			return Verdict{}, acc.Summary().Usage, err
+			return Verdict{}, acc.Summary(), err
 		}
 		history = append(history, llm.Message{Role: "user", Content: toolResults})
 	}
@@ -252,11 +257,11 @@ func (g *Gate) checkWithTools(ctx context.Context, userPrompt string) (Verdict, 
 		Messages:   history,
 	})
 	if err != nil {
-		return Verdict{}, acc.Summary().Usage, err
+		return Verdict{}, acc.Summary(), err
 	}
 	acc.Add(g.Model, resp.Usage)
 	v, err := parseVerdict(resp.Message)
-	return v, acc.Summary().Usage, err
+	return v, acc.Summary(), err
 }
 
 // runTools executes every tool_use block in msg and returns the matching

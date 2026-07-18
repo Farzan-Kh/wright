@@ -103,3 +103,8 @@ func (a *Accumulator) Add(model string, u Usage) {
 func (a *Accumulator) Summary() Summary {
 	return a.s
 }
+
+// Merge adds the turn, token, and USD values from b into the accumulator.
+func (a *Accumulator) Merge(b Summary) {
+	a.s.Merge(b)
+}

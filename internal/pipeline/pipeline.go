@@ -70,8 +70,8 @@ func (p *Pipeline) RunOnce(ctx context.Context) ([]IssueReport, error) {
 		rep := IssueReport{IssueNumber: iss.Number}
 		total := cost.NewAccumulator(nil)
 
-		v, gateUsage, err := p.Gate.CheckWithUsage(ctx, iss)
-		total.Add("", gateUsage)
+		v, gateSummary, err := p.Gate.CheckWithUsage(ctx, iss)
+		total.Merge(gateSummary)
 		if err != nil {
 			rep.Status = "error"
 			rep.Detail = "gate: " + err.Error()

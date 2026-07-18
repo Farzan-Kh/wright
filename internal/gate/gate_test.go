@@ -70,15 +70,53 @@ func TestCheckWithUsage(t *testing.T) {
 	}}}
 
 	g := &Gate{LLM: f, Model: "claude-haiku-4-5", MaxTokens: 256}
-	v, usage, err := g.CheckWithUsage(context.Background(), provider.Issue{Title: "Fix bug", Body: ""})
+	v, summary, err := g.CheckWithUsage(context.Background(), provider.Issue{Title: "Fix bug", Body: ""})
 	if err != nil {
 		t.Fatalf("CheckWithUsage: %v", err)
 	}
 	if !v.Ready {
 		t.Fatalf("verdict = %+v, want ready=true", v)
 	}
-	if usage.InputTokens != 123 || usage.OutputTokens != 45 {
-		t.Fatalf("usage = %+v, want input=123 output=45", usage)
+	if summary.Turns != 1 {
+		t.Fatalf("turns = %d, want 1", summary.Turns)
+	}
+	if summary.Usage.InputTokens != 123 || summary.Usage.OutputTokens != 45 {
+		t.Fatalf("usage = %+v, want input=123 output=45", summary.Usage)
+	}
+	if summary.USDKnown {
+		t.Fatalf("USDKnown should be false with nil Rates")
+	}
+}
+
+// TestCheckWithUsageWithRates verifies that the gate returns a Summary with
+// populated USD when Rates is set.
+func TestCheckWithUsageWithRates(t *testing.T) {
+	f := &llm.FakeProvider{Responses: []llm.MessageResponse{{
+		Message: llm.Message{Role: "assistant", Content: []llm.ContentBlock{{
+			Type: "text", Text: `{"ready":true,"missing":""}`,
+		}}},
+		Usage: cost.Usage{InputTokens: 1_000_000, OutputTokens: 500_000},
+	}}}
+
+	g := &Gate{
+		LLM: f, Model: "claude-haiku-4-5", MaxTokens: 256,
+		Rates: cost.RateTable{
+			"claude-haiku-4-5": {InputPerMTok: 0.80, OutputPerMTok: 4.00},
+		},
+	}
+	v, summary, err := g.CheckWithUsage(context.Background(), provider.Issue{Title: "Fix bug", Body: ""})
+	if err != nil {
+		t.Fatalf("CheckWithUsage: %v", err)
+	}
+	if !v.Ready {
+		t.Fatalf("verdict = %+v, want ready=true", v)
+	}
+	if !summary.USDKnown {
+		t.Fatalf("USDKnown should be true when Rates is set")
+	}
+	// 1M input @ $0.80/MTok = $0.80, 500k output @ $4.00/MTok = $2.00, total = $2.80
+	if summary.USD != 2.80 {
+		t.Fatalf("USD = %f, want 2.80", summary.USD)
 	}
 }
 
