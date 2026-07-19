@@ -1,6 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package cli
+// Package executor implements the "do the work" step of Wright's pipeline:
+// given a gate-approved issue, it starts a sandbox, runs the coding agent,
+// verifies the result (retrying on failure), and hands off to gitops to
+// commit, push, and open a PR. It's factored out of internal/cli so a future
+// daemon (Phase 2) can reuse the same orchestration without depending on the
+// CLI layer. It depends on agent, agent/llm, cache, config, cost, gate,
+// gitops, pipeline, provider, sandbox, stack, and verifier; nothing else
+// depends on it except internal/cli, which wires it up and injects its
+// Handle method as the pipeline's ReadyHandler.
+package executor
 
 import (
 	"context"
@@ -11,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/farzan-kh/wright/internal/agent"
 	"github.com/farzan-kh/wright/internal/agent/llm"
@@ -27,7 +37,9 @@ import (
 	"github.com/farzan-kh/wright/internal/verifier"
 )
 
-type issueExecutor struct {
+// Executor runs the sandbox/agent/verify/git-ops sequence for one
+// gate-approved issue. Handle is injected as pipeline.ReadyHandler.
+type Executor struct {
 	Provider      provider.Provider
 	Repo          provider.Repo
 	RepoConfig    *config.RepoConfig
@@ -56,7 +68,7 @@ type stackedDependency struct {
 	others []int
 }
 
-func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.Summary, error) {
+func (e *Executor) Handle(ctx context.Context, issue provider.Issue) (cost.Summary, error) {
 	l := logging.FromContext(ctx).With("issue", issue.Number)
 	zeroCost := cost.Summary{USDKnown: true}
 	branchName := gitops.BranchName(issue.Number)
@@ -330,7 +342,7 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 // issue's work on top of, or nil if none do. Multiple simultaneous open
 // dependencies can't all be stacked on at once - a branch has one parent -
 // so any others found are carried along on the result for a PR-body note.
-func (e *issueExecutor) findStackDependency(ctx context.Context, l *slog.Logger, issue provider.Issue) *stackedDependency {
+func (e *Executor) findStackDependency(ctx context.Context, l *slog.Logger, issue provider.Issue) *stackedDependency {
 	refs := gate.ExtractIssueReferences(issue)
 	if len(refs) == 0 {
 		return nil
@@ -387,7 +399,7 @@ func formatIssueRefs(numbers []int) string {
 // resumePRPending retries opening the PR for an attempt that already got as
 // far as a verified, committed, pushed branch last time - no sandbox or
 // agent call needed, just another shot at the provider API call that failed.
-func (e *issueExecutor) resumePRPending(ctx context.Context, l *slog.Logger, ops *gitops.Ops, repoKey string, issue provider.Issue, cached cache.Entry) (cost.Summary, error) {
+func (e *Executor) resumePRPending(ctx context.Context, l *slog.Logger, ops *gitops.Ops, repoKey string, issue provider.Issue, cached cache.Entry) (cost.Summary, error) {
 	prTitle := fmt.Sprintf("Issue #%d: %s", issue.Number, truncate(strings.TrimSpace(issue.Title), 72))
 	prBody := buildPRBody(issue, cached.DiffSummary, cached.VerifyCmd, cached.VerifyOutput)
 	pr, err := ops.OpenPR(ctx, prTitle, prBody, cached.Branch, cached.BaseBranch, false)
@@ -409,7 +421,7 @@ func (e *issueExecutor) resumePRPending(ctx context.Context, l *slog.Logger, ops
 // loadCache returns the cached attempt for issue, or nil if none exists or
 // caching is disabled. A load error is logged and treated as no cache, so a
 // corrupt entry degrades to "start fresh" instead of blocking the run.
-func (e *issueExecutor) loadCache(l *slog.Logger, repoKey string, issueNumber int) *cache.Entry {
+func (e *Executor) loadCache(l *slog.Logger, repoKey string, issueNumber int) *cache.Entry {
 	if e.Cache == nil {
 		return nil
 	}
@@ -424,7 +436,7 @@ func (e *issueExecutor) loadCache(l *slog.Logger, repoKey string, issueNumber in
 	return entry
 }
 
-func (e *issueExecutor) clearCache(repoKey string, issueNumber int) {
+func (e *Executor) clearCache(repoKey string, issueNumber int) {
 	if e.Cache == nil {
 		return
 	}
@@ -437,7 +449,7 @@ func (e *issueExecutor) clearCache(repoKey string, issueNumber int) {
 // instead of re-spending turns from scratch. Best-effort throughout: any
 // failure to capture or persist just means the next run starts fresh, which
 // is no worse than today's behavior.
-func (e *issueExecutor) cacheIncomplete(ctx context.Context, l *slog.Logger, task sandbox.ToolExec, repoKey string, issue provider.Issue, branch, baseBranch string, system []llm.SystemBlock, history []llm.Message, totalCost cost.Summary, verifyCmd, verifyOut, reason string) {
+func (e *Executor) cacheIncomplete(ctx context.Context, l *slog.Logger, task sandbox.ToolExec, repoKey string, issue provider.Issue, branch, baseBranch string, system []llm.SystemBlock, history []llm.Message, totalCost cost.Summary, verifyCmd, verifyOut, reason string) {
 	if e.Cache == nil {
 		return
 	}
@@ -464,7 +476,7 @@ func (e *issueExecutor) cacheIncomplete(ctx context.Context, l *slog.Logger, tas
 // cacheVerifiedUnpushed persists a diff that already passed verify but
 // couldn't be committed or pushed, so a resume can skip the agent entirely
 // and go straight back to the git steps.
-func (e *issueExecutor) cacheVerifiedUnpushed(ctx context.Context, l *slog.Logger, task sandbox.ToolExec, repoKey string, issue provider.Issue, branch, baseBranch, verifyCmd, verifyOut string, totalCost cost.Summary, reason string) {
+func (e *Executor) cacheVerifiedUnpushed(ctx context.Context, l *slog.Logger, task sandbox.ToolExec, repoKey string, issue provider.Issue, branch, baseBranch, verifyCmd, verifyOut string, totalCost cost.Summary, reason string) {
 	if e.Cache == nil {
 		return
 	}
@@ -490,7 +502,7 @@ func (e *issueExecutor) cacheVerifiedUnpushed(ctx context.Context, l *slog.Logge
 // cachePRPending persists a pushed-branch attempt whose PR creation failed.
 // No diff is needed: the branch already has the commit, so a resume only
 // needs to retry the provider PR-open call.
-func (e *issueExecutor) cachePRPending(l *slog.Logger, repoKey string, issue provider.Issue, branch, baseBranch, diffSummary, verifyCmd, verifyOut string, totalCost cost.Summary, reason string) {
+func (e *Executor) cachePRPending(l *slog.Logger, repoKey string, issue provider.Issue, branch, baseBranch, diffSummary, verifyCmd, verifyOut string, totalCost cost.Summary, reason string) {
 	if e.Cache == nil {
 		return
 	}
@@ -724,4 +736,25 @@ func repoRemoteURL(rc *config.RepoConfig) (string, error) {
 		}
 	}
 	return fmt.Sprintf("https://%s/%s.git", host, rc.Repo), nil
+}
+
+// truncate returns s cut to at most n bytes, without splitting a multi-byte
+// rune, appending an ellipsis when cut.
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	if n <= 1 {
+		return safeCut(s, n)
+	}
+	return safeCut(s, n-1) + "…"
+}
+
+// safeCut returns the first n bytes of s, pulled back to the nearest earlier
+// rune boundary so a multi-byte UTF-8 character is never split in half.
+func safeCut(s string, n int) string {
+	for n > 0 && n < len(s) && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
 }
