@@ -72,6 +72,7 @@ resumes it rather than restarting from scratch.
 | `agent_model` | string | `claude-sonnet-5`    | Model used for the agent tool loop. |
 | `gate_model`  | string | `claude-haiku-4-5`   | Model used for the pre-agent gate check. |
 | `effort`      | string | `high`               | `low` \| `medium` \| `high`. |
+| `thinking`    | bool   | `true`               | Enables extended-thinking/reasoning on agent tool-loop calls. Thinking and the visible output (text + tool-call JSON) share the same per-turn token budget (see `MaxTokens` in the agent runner), split by `effort`'s ratio for Claude; some OpenRouter reasoning models draw from that same budget too. A model writing a large file can have its tool call truncated mid-JSON if too much of the budget goes to thinking. Set to `false` to give tool output the full budget. |
 | `oauth`       | object | —                    | Only relevant when `auth: oauth`; see [`llm.oauth`](#llmoauth). Not usable in Phase 1 (see above). |
 | `rates`       | map    | —                    | Per-model USD pricing, keyed by model id. See [`llm.rates`](#llmrates). Required for both `agent_model` and `gate_model` when `budget.max_usd > 0`. |
 

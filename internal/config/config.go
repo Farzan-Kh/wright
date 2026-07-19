@@ -38,6 +38,7 @@ const (
 	DefaultAgentModel     = "claude-sonnet-5"
 	DefaultGateModel      = "claude-haiku-4-5"
 	DefaultLLMEffort      = "high"
+	DefaultLLMThinking    = true
 	DefaultSandboxImage   = "alpine/git:2.47.2"
 	DefaultSandboxWorkdir = "/workspace"
 
@@ -143,6 +144,15 @@ type LLMConfig struct {
 	GateModel  string `yaml:"gate_model"`
 	Effort     string `yaml:"effort"`
 
+	// Thinking enables extended-thinking/reasoning tokens on agent LLM calls.
+	// Defaults to true when omitted. Thinking and the tool-call/text output it
+	// produces share the same agent.Config.MaxTokens budget (Claude splits it
+	// by llm.effort's ratio; OpenRouter reasoning models draw from the same
+	// completion budget), so a model writing a large file can be truncated
+	// mid-tool-call before finishing its JSON arguments. Set to false to give
+	// tool output the full budget, at the cost of the model's reasoning step.
+	Thinking *bool `yaml:"thinking"`
+
 	OAuth OAuthConfig `yaml:"oauth"`
 
 	// Rates maps model id -> per-model pricing in $/MTok.
@@ -157,6 +167,13 @@ type RatesConfig struct {
 	OutputPerMTok     float64 `yaml:"output_per_mtok"`
 	CacheReadPerMTok  float64 `yaml:"cache_read_per_mtok"`
 	CacheWritePerMTok float64 `yaml:"cache_write_per_mtok"`
+}
+
+// ThinkingEnabled reports whether agent LLM calls should request extended
+// thinking/reasoning. nil (omitted from config) means enabled, matching the
+// pre-config-flag default behavior.
+func (lc LLMConfig) ThinkingEnabled() bool {
+	return lc.Thinking == nil || *lc.Thinking
 }
 
 // ToRateTable converts the user-facing RatesConfig map into a cost.RateTable,
@@ -295,6 +312,10 @@ func (c *Config) applyDefaults() {
 		}
 		if rc.LLM.Effort == "" {
 			rc.LLM.Effort = DefaultLLMEffort
+		}
+		if rc.LLM.Thinking == nil {
+			t := DefaultLLMThinking
+			rc.LLM.Thinking = &t
 		}
 		if rc.Sandbox.Image == "" {
 			rc.Sandbox.Image = DefaultSandboxImage
