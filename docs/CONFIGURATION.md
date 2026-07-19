@@ -51,9 +51,15 @@ vars it looked for.
 
 ## `budget`
 
-| Field       | Type | Default | Notes |
-|-------------|------|---------|-------|
-| `max_turns` | int  | `0`     | Upper bound on agent turns spent per issue. Must be `>= 0`. |
+| Field              | Type    | Default | Notes |
+|--------------------|---------|---------|-------|
+| `max_turns`        | int     | `0`     | Upper bound on agent turns spent per issue. Must be `>= 0`. |
+| `max_total_tokens` | int     | `0`     | Caps total LLM tokens (input + output + cache) spent across all turns for one issue. `0` = unlimited. Must be `>= 0`. |
+| `max_usd`          | float   | `0`     | Caps total USD cost across all turns for one issue. `0` = not enforced. When `> 0`, requires a [`llm.rates`](#llmrates) entry for both `llm.agent_model` and `llm.gate_model`. |
+
+Either cap being hit ends the issue attempt the same way a turn-limit hit
+does: the partial attempt is cached (see [`cache`](#cache)) and the next run
+resumes it rather than restarting from scratch.
 
 ## `llm`
 
@@ -67,6 +73,7 @@ vars it looked for.
 | `gate_model`  | string | `claude-haiku-4-5`   | Model used for the pre-agent gate check. |
 | `effort`      | string | `high`               | `low` \| `medium` \| `high`. |
 | `oauth`       | object | —                    | Only relevant when `auth: oauth`; see [`llm.oauth`](#llmoauth). Not usable in Phase 1 (see above). |
+| `rates`       | map    | —                    | Per-model USD pricing, keyed by model id. See [`llm.rates`](#llmrates). Required for both `agent_model` and `gate_model` when `budget.max_usd > 0`. |
 
 `openrouter` targets OpenRouter's OpenAI-compatible API and only supports
 `auth: api_key` — `llm.auth oauth is not supported for openrouter` is a
@@ -93,6 +100,38 @@ is currently rejected at run time.
 | `refresh_token_env`       | string | Optional, but if any of `refresh_token_env` / `client_id_env` / `token_url` is set, all three are required together. |
 | `client_id_env`           | string | See above. |
 | `token_url`               | string | See above. Must be a valid absolute URL (scheme + host). |
+
+### `llm.rates`
+
+Per-model USD pricing, keyed by model id (the same strings used in
+`agent_model` / `gate_model`). Used to price the USD cost reported for each
+issue and, when set, to enforce [`budget.max_usd`](#budget). A model with no
+entry here has unknown cost — reports fall back to `n/a` instead of a dollar
+figure for it, and it can't be used as `agent_model`/`gate_model` while
+`budget.max_usd > 0`.
+
+| Field                   | Type  | Default | Notes |
+|--------------------------|-------|---------|-------|
+| `input_per_mtok`         | float | `0`     | USD per million input tokens. |
+| `output_per_mtok`        | float | `0`     | USD per million output tokens. |
+| `cache_read_per_mtok`    | float | `0.10 * input_per_mtok` | USD per million cache-read tokens. Left at `0`, defaults to Anthropic's standard cache-hit multiplier (10% of input price). |
+| `cache_write_per_mtok`   | float | `1.25 * input_per_mtok` | USD per million cache-write tokens. Left at `0`, defaults to Anthropic's standard 5-minute cache-write multiplier (125% of input price). |
+
+All four values must be finite and `>= 0`. In practice you usually only need
+to set `input_per_mtok` and `output_per_mtok` per model — the cache fields
+exist for providers/models whose cache pricing doesn't follow the 0.10x/1.25x
+convention. See [`wright.example.yaml`](../wright.example.yaml) for a
+worked example using current Claude list prices.
+
+### Cost reporting
+
+Once `llm.rates` is configured, `wright run`'s per-issue summary table prices
+each issue's accumulated token usage and shows it in the `USD` column
+(`$0.1234`); issues that used a model with no rates entry show `n/a` in that
+column instead. This works independently of `budget.max_usd` — you can
+configure `rates` purely for cost visibility in reports without capping
+spend, or set `budget.max_usd` to enforce a hard per-issue cap once rates are
+in place.
 
 ## `sandbox`
 
@@ -190,11 +229,18 @@ once (not just the first):
   whitespace, no leading/trailing slash, no empty segments.
 - `trigger_label` must not be empty (after defaults are applied).
 - `budget.max_turns` must be `>= 0`.
+- `budget.max_total_tokens` must be `>= 0`.
+- `budget.max_usd` must be finite and `>= 0`.
 - `llm.provider` must not be empty.
 - `llm.auth` must be `api_key` or `oauth`.
 - `llm.agent_model` and `llm.gate_model` must not be empty (after defaults).
 - `llm.effort` must be `low`, `medium`, or `high`.
 - `llm.auth: oauth` is rejected when `llm.provider` is `openrouter`.
+- Each `llm.rates[*]` entry's `input_per_mtok`, `output_per_mtok`,
+  `cache_read_per_mtok`, and `cache_write_per_mtok` must each be finite and
+  `>= 0`.
+- When `budget.max_usd > 0`, `llm.rates` must be set with an entry for both
+  `llm.agent_model` and `llm.gate_model`.
 - `prompt.system_append` and `prompt.system_override` cannot both be set.
 - When `llm.auth: oauth`: `llm.oauth.access_token_env` is required; if any of
   the refresh trio (`refresh_token_env`, `client_id_env`, `token_url`) is
