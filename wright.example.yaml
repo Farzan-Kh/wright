@@ -31,6 +31,10 @@ repos:
 
     budget: # enforced in Phase 1
       max_turns: 30
+      # max_total_tokens: 200000  # cap total tokens (in+out+cache) per issue; 0 = unlimited
+      # max_usd: 5.00             # cap total USD spent per issue; 0 = not enforced.
+      #                           # Requires an llm.rates entry below for both
+      #                           # agent_model and gate_model.
 
     llm:
       provider: claude
@@ -39,6 +43,21 @@ repos:
       agent_model: claude-sonnet-5
       gate_model: claude-haiku-4-5
       effort: high
+
+      # rates: per-model USD pricing ($/MTok = per million tokens), used to
+      # price the USD column in `wright run`'s report and, if set, to enforce
+      # budget.max_usd above. cache_read_per_mtok / cache_write_per_mtok
+      # default to 0.10x / 1.25x input_per_mtok (Anthropic's standard cache
+      # multipliers) when left unset, so you can usually omit them. Current
+      # Claude list prices (see https://claude.com/pricing#api), as of
+      # 2026-07:
+      # rates:
+      #   claude-sonnet-5:   # introductory pricing through 2026-08-31; $3/$15 after
+      #     input_per_mtok: 2.00
+      #     output_per_mtok: 10.00
+      #   claude-haiku-4-5:
+      #     input_per_mtok: 1.00
+      #     output_per_mtok: 5.00
 
       # OAuth/subscription mode is accepted by the schema but NOT activated in
       # Phase 1 (deferred to Phase 2); `wright run` rejects auth: oauth. Example:
