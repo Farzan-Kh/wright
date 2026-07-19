@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package cli
+package executor
 
 import (
 	"context"
@@ -13,25 +13,11 @@ import (
 	"github.com/farzan-kh/wright/internal/cache"
 	"github.com/farzan-kh/wright/internal/config"
 	"github.com/farzan-kh/wright/internal/cost"
-	"github.com/farzan-kh/wright/internal/logging"
 	"github.com/farzan-kh/wright/internal/pipeline"
 	"github.com/farzan-kh/wright/internal/provider"
 	"github.com/farzan-kh/wright/internal/sandbox"
 	"github.com/farzan-kh/wright/internal/stack"
 )
-
-func TestBuildLLMRejectsOAuthInPhase1(t *testing.T) {
-	rc := &config.RepoConfig{
-		LLM: config.LLMConfig{Provider: config.LLMProviderClaude, Auth: "oauth"},
-	}
-	_, err := buildLLM(rc, logging.FromContext(context.Background()))
-	if err == nil {
-		t.Fatal("buildLLM(oauth) = nil error, want a Phase 1 not-supported error")
-	}
-	if !strings.Contains(err.Error(), "not supported in Phase 1") || !strings.Contains(err.Error(), "api_key") {
-		t.Fatalf("error = %q, want it to mention Phase 1 and api_key", err)
-	}
-}
 
 func TestRepoRemoteURL(t *testing.T) {
 	tests := []struct {
@@ -83,7 +69,7 @@ func TestGitRemoteUsername(t *testing.T) {
 }
 
 func TestBuildPRBody(t *testing.T) {
-	body := buildPRBody(
+	body := BuildPRBody(
 		provider.Issue{Number: 7, Title: "Fix crash", Body: "When clicking save"},
 		"1 file changed, 10 insertions(+), 2 deletions(-)",
 		"go test ./...",
@@ -109,7 +95,7 @@ func TestBuildAgentSystemPromptDefaultIncludesDynamicFacts(t *testing.T) {
 	rc := &config.RepoConfig{
 		Sandbox: config.SandboxConfig{Image: "alpine/git:2.47.2", Workdir: "/workspace"},
 	}
-	blocks := buildAgentSystemPrompt(provider.Issue{Number: 5, Title: "Fix bug", Body: "Steps"}, rc, "main", "go test ./...", "", "")
+	blocks := BuildAgentSystemPrompt(provider.Issue{Number: 5, Title: "Fix bug", Body: "Steps"}, rc, "main", "go test ./...", "", "")
 
 	var all strings.Builder
 	for _, b := range blocks {
@@ -140,7 +126,7 @@ func TestBuildAgentSystemPromptDefaultIncludesDynamicFacts(t *testing.T) {
 
 func TestBuildAgentSystemPromptSystemAppend(t *testing.T) {
 	rc := &config.RepoConfig{Prompt: config.PromptConfig{SystemAppend: "Always update CHANGELOG.md."}}
-	blocks := buildAgentSystemPrompt(provider.Issue{Number: 1, Title: "T"}, rc, "main", "make test", "", "")
+	blocks := BuildAgentSystemPrompt(provider.Issue{Number: 1, Title: "T"}, rc, "main", "make test", "", "")
 
 	if !strings.Contains(blocks[0].Text, defaultAgentBehaviorPrompt) {
 		t.Fatalf("behavior block should still contain the default text, got %q", blocks[0].Text)
@@ -152,7 +138,7 @@ func TestBuildAgentSystemPromptSystemAppend(t *testing.T) {
 
 func TestBuildAgentSystemPromptSystemOverride(t *testing.T) {
 	rc := &config.RepoConfig{Prompt: config.PromptConfig{SystemOverride: "You are a specialized widget-repo agent."}}
-	blocks := buildAgentSystemPrompt(provider.Issue{Number: 1, Title: "T"}, rc, "main", "make test", "", "")
+	blocks := BuildAgentSystemPrompt(provider.Issue{Number: 1, Title: "T"}, rc, "main", "make test", "", "")
 
 	if blocks[0].Text != "You are a specialized widget-repo agent." {
 		t.Fatalf("behavior block = %q, want the override verbatim", blocks[0].Text)
@@ -210,7 +196,7 @@ func TestReadRepoInstructionsNoneFound(t *testing.T) {
 
 func TestBuildAgentSystemPromptRepoInstructions(t *testing.T) {
 	rc := &config.RepoConfig{Sandbox: config.SandboxConfig{Image: "alpine/git:2.47.2", Workdir: "/workspace"}}
-	blocks := buildAgentSystemPrompt(provider.Issue{Number: 1, Title: "T"}, rc, "main", "make test", "CLAUDE.md", "This repo uses X.")
+	blocks := BuildAgentSystemPrompt(provider.Issue{Number: 1, Title: "T"}, rc, "main", "make test", "CLAUDE.md", "This repo uses X.")
 
 	if len(blocks) != 5 {
 		t.Fatalf("got %d blocks, want 5 (behavior, contract, repo instructions, environment, issue text)", len(blocks))
@@ -234,7 +220,7 @@ func TestBuildAgentSystemPromptRepoInstructions(t *testing.T) {
 
 func TestBuildAgentSystemPromptNoRepoInstructionsOmitsBlock(t *testing.T) {
 	rc := &config.RepoConfig{Sandbox: config.SandboxConfig{Image: "alpine/git:2.47.2", Workdir: "/workspace"}}
-	blocks := buildAgentSystemPrompt(provider.Issue{Number: 1, Title: "T"}, rc, "main", "make test", "", "")
+	blocks := BuildAgentSystemPrompt(provider.Issue{Number: 1, Title: "T"}, rc, "main", "make test", "", "")
 	if len(blocks) != 4 {
 		t.Fatalf("got %d blocks, want 4 (behavior, contract, environment, issue text) when no repo instructions exist", len(blocks))
 	}
@@ -342,9 +328,9 @@ func (o *fakeOrchestrator) Start(_ context.Context, spec sandbox.TaskSpec) (sand
 	return o.task, nil
 }
 
-func TestIssueExecutorHandleSkipsWhenOpenPRExists(t *testing.T) {
+func TestExecutorHandleSkipsWhenOpenPRExists(t *testing.T) {
 	fp := &fakeExecProvider{findPR: &provider.PullRequest{Number: 12, URL: "https://example.com/pr/12"}}
-	exec := &issueExecutor{
+	exec := &Executor{
 		Provider: fp,
 		Repo:     provider.Repo{FullPath: "acme/widgets"},
 		RepoConfig: &config.RepoConfig{
@@ -367,7 +353,7 @@ func TestIssueExecutorHandleSkipsWhenOpenPRExists(t *testing.T) {
 	}
 }
 
-func TestIssueExecutorHandleRetriesAfterVerifyFailure(t *testing.T) {
+func TestExecutorHandleRetriesAfterVerifyFailure(t *testing.T) {
 	fp := &fakeExecProvider{defaultBranch: "main"}
 	llmFake := &llm.FakeProvider{Responses: []llm.MessageResponse{
 		{
@@ -414,7 +400,7 @@ func TestIssueExecutorHandleRetriesAfterVerifyFailure(t *testing.T) {
 	}
 
 	orch := &fakeOrchestrator{task: task}
-	exec := &issueExecutor{
+	exec := &Executor{
 		Provider:      fp,
 		Repo:          provider.Repo{FullPath: "acme/widgets"},
 		ProviderToken: "provider-token",
@@ -481,13 +467,13 @@ func TestIssueExecutorHandleRetriesAfterVerifyFailure(t *testing.T) {
 	}
 }
 
-// TestIssueExecutorHandleStacksOnDependencyPR is the regression test for the
+// TestExecutorHandleStacksOnDependencyPR is the regression test for the
 // stacked-PR feature: issue #14 references #13, which already has an open
 // Wright PR (#40, branch wright/issue-13). With stacking enabled, Wright must
 // branch #14's work off wright/issue-13 instead of the repo's real base
 // branch, note the stacking relationship in the PR body, and register the
 // new PR with the stack store so it can be retargeted once #13 merges.
-func TestIssueExecutorHandleStacksOnDependencyPR(t *testing.T) {
+func TestExecutorHandleStacksOnDependencyPR(t *testing.T) {
 	fp := &fakeExecProvider{
 		defaultBranch: "main",
 		findPRByBranch: map[string]*provider.PullRequest{
@@ -522,7 +508,7 @@ func TestIssueExecutorHandleStacksOnDependencyPR(t *testing.T) {
 	orch := &fakeOrchestrator{task: task}
 
 	stackStore := &stack.FileStore{Dir: t.TempDir()}
-	exec := &issueExecutor{
+	exec := &Executor{
 		Provider:      fp,
 		Repo:          provider.Repo{FullPath: "acme/widgets"},
 		ProviderToken: "provider-token",
@@ -570,12 +556,12 @@ func TestIssueExecutorHandleStacksOnDependencyPR(t *testing.T) {
 	}
 }
 
-// TestIssueExecutorHandleCachesOnTurnLimitAndResumes exercises the main
-// resume path end to end: a first attempt burns its whole turn budget
-// mid-edit, gets cached, and a second attempt against the same cache picks
-// the conversation back up (with the prior diff already reapplied to the
-// fresh sandbox) instead of starting the agent over from scratch.
-func TestIssueExecutorHandleCachesOnTurnLimitAndResumes(t *testing.T) {
+// TestExecutorHandleCachesOnTurnLimitAndResumes exercises the main resume
+// path end to end: a first attempt burns its whole turn budget mid-edit, gets
+// cached, and a second attempt against the same cache picks the conversation
+// back up (with the prior diff already reapplied to the fresh sandbox) instead
+// of starting the agent over from scratch.
+func TestExecutorHandleCachesOnTurnLimitAndResumes(t *testing.T) {
 	store := &cache.FileStore{Dir: t.TempDir()}
 	repo := provider.Repo{FullPath: "acme/widgets"}
 	rc := &config.RepoConfig{
@@ -610,7 +596,7 @@ func TestIssueExecutorHandleCachesOnTurnLimitAndResumes(t *testing.T) {
 		}
 	}
 	orchA := &fakeOrchestrator{task: taskA}
-	execA := &issueExecutor{
+	execA := &Executor{
 		Provider: fp, Repo: repo, RepoConfig: rc, ProviderToken: "tok",
 		LLM: llmFakeA, Sandbox: orchA, Cache: store,
 	}
@@ -677,7 +663,7 @@ func TestIssueExecutorHandleCachesOnTurnLimitAndResumes(t *testing.T) {
 		}
 	}
 	orchB := &fakeOrchestrator{task: taskB}
-	execB := &issueExecutor{
+	execB := &Executor{
 		Provider: fp, Repo: repo, RepoConfig: &rcResume, ProviderToken: "tok",
 		LLM: llmFakeB, Sandbox: orchB, Cache: store,
 	}
@@ -711,11 +697,11 @@ func TestIssueExecutorHandleCachesOnTurnLimitAndResumes(t *testing.T) {
 	}
 }
 
-// TestIssueExecutorHandleCachesOnCommitPushFailureAndResumes covers the
+// TestExecutorHandleCachesOnCommitPushFailureAndResumes covers the
 // verified_unpushed stage: verify passes but the commit/push step fails, and
 // a resume reapplies the diff, re-verifies (no LLM call), and finishes the
 // git + PR steps without invoking the agent again.
-func TestIssueExecutorHandleCachesOnCommitPushFailureAndResumes(t *testing.T) {
+func TestExecutorHandleCachesOnCommitPushFailureAndResumes(t *testing.T) {
 	store := &cache.FileStore{Dir: t.TempDir()}
 	repo := provider.Repo{FullPath: "acme/widgets"}
 	rc := &config.RepoConfig{
@@ -760,7 +746,7 @@ func TestIssueExecutorHandleCachesOnCommitPushFailureAndResumes(t *testing.T) {
 		}
 	}
 	orchA := &fakeOrchestrator{task: taskA}
-	execA := &issueExecutor{
+	execA := &Executor{
 		Provider: fp, Repo: repo, RepoConfig: rc, ProviderToken: "tok",
 		LLM: llmFakeA, Sandbox: orchA, Cache: store,
 	}
@@ -811,7 +797,7 @@ func TestIssueExecutorHandleCachesOnCommitPushFailureAndResumes(t *testing.T) {
 		}
 	}
 	orchB := &fakeOrchestrator{task: taskB}
-	execB := &issueExecutor{
+	execB := &Executor{
 		Provider: fp, Repo: repo, RepoConfig: rc, ProviderToken: "tok",
 		LLM: llmFakeB, Sandbox: orchB, Cache: store,
 	}
@@ -841,12 +827,12 @@ func TestIssueExecutorHandleCachesOnCommitPushFailureAndResumes(t *testing.T) {
 	}
 }
 
-// TestIssueExecutorHandleCachesOnPRFailureAndResumesWithoutSandbox covers the
+// TestExecutorHandleCachesOnPRFailureAndResumesWithoutSandbox covers the
 // pr_pending stage: commit+push succeed but opening the PR fails. This used
 // to be a permanent dead end (the branch-exists idempotency check would skip
 // the issue forever on the next attempt); a resume should retry only the
 // PR-open call, touching neither the sandbox nor the agent.
-func TestIssueExecutorHandleCachesOnPRFailureAndResumesWithoutSandbox(t *testing.T) {
+func TestExecutorHandleCachesOnPRFailureAndResumesWithoutSandbox(t *testing.T) {
 	store := &cache.FileStore{Dir: t.TempDir()}
 	repo := provider.Repo{FullPath: "acme/widgets"}
 	rc := &config.RepoConfig{
@@ -888,7 +874,7 @@ func TestIssueExecutorHandleCachesOnPRFailureAndResumesWithoutSandbox(t *testing
 		}
 	}
 	orch := &fakeOrchestrator{task: task}
-	exec := &issueExecutor{
+	exec := &Executor{
 		Provider: fp, Repo: repo, RepoConfig: rc, ProviderToken: "tok",
 		LLM: llmFake, Sandbox: orch, Cache: store,
 	}

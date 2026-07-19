@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"text/tabwriter"
 	"time"
-	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 
@@ -16,6 +15,7 @@ import (
 	"github.com/farzan-kh/wright/internal/logging"
 	"github.com/farzan-kh/wright/internal/provider"
 	"github.com/farzan-kh/wright/internal/provider/factory"
+	"github.com/farzan-kh/wright/internal/text"
 )
 
 func newOnceCmd() *cobra.Command {
@@ -89,7 +89,7 @@ func printIssues(w io.Writer, rc *config.RepoConfig, baseBranch string, issues [
 		for _, iss := range issues {
 			fmt.Fprintf(tw, "  %d\t%s\t%s\t%s\t%s\n",
 				iss.Number,
-				truncate(iss.Title, 50),
+				text.Truncate(iss.Title, 50),
 				joinLabels(iss.Labels),
 				iss.UpdatedAt.Format(time.RFC3339),
 				iss.URL,
@@ -112,21 +112,4 @@ func joinLabels(labels []string) string {
 	return s
 }
 
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	if n <= 1 {
-		return safeCut(s, n)
-	}
-	return safeCut(s, n-1) + "…"
-}
-
-// safeCut returns the first n bytes of s, pulled back to the nearest earlier
-// rune boundary so a multi-byte UTF-8 character is never split in half.
-func safeCut(s string, n int) string {
-	for n > 0 && n < len(s) && !utf8.RuneStart(s[n]) {
-		n--
-	}
-	return s[:n]
-}
+func truncate(s string, n int) string { return text.Truncate(s, n) }

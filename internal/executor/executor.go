@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package cli
+// Package executor provides the Executor struct that handles an approved issue
+// end-to-end: sandbox, agent, verify, git operations, and PR creation. It is
+// the "do the work" implementation injected as pipeline.OnReady by the CLI.
+package executor
 
 import (
 	"context"
@@ -24,10 +27,14 @@ import (
 	"github.com/farzan-kh/wright/internal/provider"
 	"github.com/farzan-kh/wright/internal/sandbox"
 	"github.com/farzan-kh/wright/internal/stack"
+	"github.com/farzan-kh/wright/internal/text"
 	"github.com/farzan-kh/wright/internal/verifier"
 )
 
-type issueExecutor struct {
+// Executor handles a gate-approved issue end-to-end: sandbox, agent, verify,
+// git operations, and PR creation. It implements pipeline.ReadyHandler and is
+// constructed by the CLI wiring in internal/cli/run.go.
+type Executor struct {
 	Provider      provider.Provider
 	Repo          provider.Repo
 	RepoConfig    *config.RepoConfig
@@ -56,7 +63,10 @@ type stackedDependency struct {
 	others []int
 }
 
-func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.Summary, error) {
+// Handle implements pipeline.ReadyHandler. It picks up an issue approved by
+// the triage gate and runs it through the full resolution pipeline: sandbox,
+// agent, verify, git commit/push, and PR creation.
+func (e *Executor) Handle(ctx context.Context, issue provider.Issue) (cost.Summary, error) {
 	l := logging.FromContext(ctx).With("issue", issue.Number)
 	zeroCost := cost.Summary{USDKnown: true}
 	branchName := gitops.BranchName(issue.Number)
@@ -212,8 +222,8 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 			if instrFile != "" {
 				l.Debug("executor: repo instructions found", "file", instrFile)
 			}
-			systemPrompt = buildAgentSystemPrompt(issue, e.RepoConfig, baseBranch, verifyCmd, instrFile, instrContent)
-			history = buildAgentHistory(issue)
+			systemPrompt = BuildAgentSystemPrompt(issue, e.RepoConfig, baseBranch, verifyCmd, instrFile, instrContent)
+			history = BuildAgentHistory(issue)
 		}
 
 		tools := []llm.ToolSpec{
@@ -288,7 +298,7 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 	}
 
 	prTitle := fmt.Sprintf("Issue #%d: %s", issue.Number, truncate(strings.TrimSpace(issue.Title), 72))
-	prBody := buildPRBody(issue, diffSummary, verifyCmd, verifyOut)
+	prBody := BuildPRBody(issue, diffSummary, verifyCmd, verifyOut)
 	if stackedOn != nil {
 		prBody += "\n\n---\n" + stackingNote(stackedOn)
 	}
@@ -330,7 +340,7 @@ func (e *issueExecutor) Handle(ctx context.Context, issue provider.Issue) (cost.
 // issue's work on top of, or nil if none do. Multiple simultaneous open
 // dependencies can't all be stacked on at once - a branch has one parent -
 // so any others found are carried along on the result for a PR-body note.
-func (e *issueExecutor) findStackDependency(ctx context.Context, l *slog.Logger, issue provider.Issue) *stackedDependency {
+func (e *Executor) findStackDependency(ctx context.Context, l *slog.Logger, issue provider.Issue) *stackedDependency {
 	refs := gate.ExtractIssueReferences(issue)
 	if len(refs) == 0 {
 		return nil
@@ -387,9 +397,9 @@ func formatIssueRefs(numbers []int) string {
 // resumePRPending retries opening the PR for an attempt that already got as
 // far as a verified, committed, pushed branch last time - no sandbox or
 // agent call needed, just another shot at the provider API call that failed.
-func (e *issueExecutor) resumePRPending(ctx context.Context, l *slog.Logger, ops *gitops.Ops, repoKey string, issue provider.Issue, cached cache.Entry) (cost.Summary, error) {
+func (e *Executor) resumePRPending(ctx context.Context, l *slog.Logger, ops *gitops.Ops, repoKey string, issue provider.Issue, cached cache.Entry) (cost.Summary, error) {
 	prTitle := fmt.Sprintf("Issue #%d: %s", issue.Number, truncate(strings.TrimSpace(issue.Title), 72))
-	prBody := buildPRBody(issue, cached.DiffSummary, cached.VerifyCmd, cached.VerifyOutput)
+	prBody := BuildPRBody(issue, cached.DiffSummary, cached.VerifyCmd, cached.VerifyOutput)
 	pr, err := ops.OpenPR(ctx, prTitle, prBody, cached.Branch, cached.BaseBranch, false)
 	if err != nil {
 		cached.Reason = err.Error()
@@ -409,7 +419,7 @@ func (e *issueExecutor) resumePRPending(ctx context.Context, l *slog.Logger, ops
 // loadCache returns the cached attempt for issue, or nil if none exists or
 // caching is disabled. A load error is logged and treated as no cache, so a
 // corrupt entry degrades to "start fresh" instead of blocking the run.
-func (e *issueExecutor) loadCache(l *slog.Logger, repoKey string, issueNumber int) *cache.Entry {
+func (e *Executor) loadCache(l *slog.Logger, repoKey string, issueNumber int) *cache.Entry {
 	if e.Cache == nil {
 		return nil
 	}
@@ -424,7 +434,7 @@ func (e *issueExecutor) loadCache(l *slog.Logger, repoKey string, issueNumber in
 	return entry
 }
 
-func (e *issueExecutor) clearCache(repoKey string, issueNumber int) {
+func (e *Executor) clearCache(repoKey string, issueNumber int) {
 	if e.Cache == nil {
 		return
 	}
@@ -437,7 +447,7 @@ func (e *issueExecutor) clearCache(repoKey string, issueNumber int) {
 // instead of re-spending turns from scratch. Best-effort throughout: any
 // failure to capture or persist just means the next run starts fresh, which
 // is no worse than today's behavior.
-func (e *issueExecutor) cacheIncomplete(ctx context.Context, l *slog.Logger, task sandbox.ToolExec, repoKey string, issue provider.Issue, branch, baseBranch string, system []llm.SystemBlock, history []llm.Message, totalCost cost.Summary, verifyCmd, verifyOut, reason string) {
+func (e *Executor) cacheIncomplete(ctx context.Context, l *slog.Logger, task sandbox.ToolExec, repoKey string, issue provider.Issue, branch, baseBranch string, system []llm.SystemBlock, history []llm.Message, totalCost cost.Summary, verifyCmd, verifyOut, reason string) {
 	if e.Cache == nil {
 		return
 	}
@@ -464,7 +474,7 @@ func (e *issueExecutor) cacheIncomplete(ctx context.Context, l *slog.Logger, tas
 // cacheVerifiedUnpushed persists a diff that already passed verify but
 // couldn't be committed or pushed, so a resume can skip the agent entirely
 // and go straight back to the git steps.
-func (e *issueExecutor) cacheVerifiedUnpushed(ctx context.Context, l *slog.Logger, task sandbox.ToolExec, repoKey string, issue provider.Issue, branch, baseBranch, verifyCmd, verifyOut string, totalCost cost.Summary, reason string) {
+func (e *Executor) cacheVerifiedUnpushed(ctx context.Context, l *slog.Logger, task sandbox.ToolExec, repoKey string, issue provider.Issue, branch, baseBranch, verifyCmd, verifyOut string, totalCost cost.Summary, reason string) {
 	if e.Cache == nil {
 		return
 	}
@@ -490,7 +500,7 @@ func (e *issueExecutor) cacheVerifiedUnpushed(ctx context.Context, l *slog.Logge
 // cachePRPending persists a pushed-branch attempt whose PR creation failed.
 // No diff is needed: the branch already has the commit, so a resume only
 // needs to retry the provider PR-open call.
-func (e *issueExecutor) cachePRPending(l *slog.Logger, repoKey string, issue provider.Issue, branch, baseBranch, diffSummary, verifyCmd, verifyOut string, totalCost cost.Summary, reason string) {
+func (e *Executor) cachePRPending(l *slog.Logger, repoKey string, issue provider.Issue, branch, baseBranch, diffSummary, verifyCmd, verifyOut string, totalCost cost.Summary, reason string) {
 	if e.Cache == nil {
 		return
 	}
@@ -596,7 +606,10 @@ func readRepoInstructions(ctx context.Context, exec sandbox.ToolExec) (name, con
 	return "", "", nil
 }
 
-func buildAgentSystemPrompt(issue provider.Issue, rc *config.RepoConfig, baseBranch, verifyCmd, instrFile, instrContent string) []llm.SystemBlock {
+// BuildAgentSystemPrompt builds the system prompt blocks given to the coding
+// agent for an issue. Exported so tests in the executor package can verify its
+// contents.
+func BuildAgentSystemPrompt(issue provider.Issue, rc *config.RepoConfig, baseBranch, verifyCmd, instrFile, instrContent string) []llm.SystemBlock {
 	behavior := strings.TrimSpace(rc.Prompt.SystemOverride)
 	if behavior == "" {
 		behavior = defaultAgentBehaviorPrompt
@@ -639,7 +652,10 @@ func buildAgentSystemPrompt(issue provider.Issue, rc *config.RepoConfig, baseBra
 	return blocks
 }
 
-func buildAgentHistory(issue provider.Issue) []llm.Message {
+// BuildAgentHistory builds the initial user message for the coding agent
+// containing the issue title, body, and comments. Exported so tests in the
+// executor package can verify its contents.
+func BuildAgentHistory(issue provider.Issue) []llm.Message {
 	msg := "Implement this issue in the checked-out repository.\n\n" +
 		"Issue title: " + issue.Title + "\n\n" +
 		"Issue body:\n" + issue.Body
@@ -653,7 +669,10 @@ func buildAgentHistory(issue provider.Issue) []llm.Message {
 	}}
 }
 
-func buildPRBody(issue provider.Issue, diffSummary, verifyCmd, verifyOutput string) string {
+// BuildPRBody builds the body text for the pull request description, including
+// what the issue asked for, what changed, and verification output. Exported so
+// tests in the executor package can verify its contents.
+func BuildPRBody(issue provider.Issue, diffSummary, verifyCmd, verifyOutput string) string {
 	var b strings.Builder
 	b.WriteString("## What this issue asked for\n\n")
 	b.WriteString("- #")
@@ -724,4 +743,8 @@ func repoRemoteURL(rc *config.RepoConfig) (string, error) {
 		}
 	}
 	return fmt.Sprintf("https://%s/%s.git", host, rc.Repo), nil
+}
+
+func truncate(s string, n int) string {
+	return text.Truncate(s, n)
 }
