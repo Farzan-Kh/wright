@@ -117,7 +117,7 @@ func (g *Gate) checkWithUsage(ctx context.Context, issue provider.Issue) (Verdic
 // ExtractIssueReferences scans the issue's title, body, and comments for "#N"
 // references, dedupes them, excludes issue's own number, and caps the result
 // at maxResolvedReferences so a pathological issue body can't turn triage (or
-// stacking base-branch selection in run_exec.go, which reuses this same scan
+// stacking base-branch selection in executor, which reuses this same scan
 // so the two can't drift) into an unbounded number of API calls.
 func ExtractIssueReferences(issue provider.Issue) []int {
 	text := issue.Title + "\n" + issue.Body + "\n" + issue.FormatComments()

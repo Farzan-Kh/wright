@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package stack tracks pull requests that Wright stacked on top of an
-// in-flight dependency PR (see internal/gate and internal/cli/run_exec.go's
+// in-flight dependency PR (see internal/gate and internal/executor's
 // stacking base-branch selection), and reconciles them once their dependency
 // merges: retargeting the stacked PR's base back onto the repo's real base
 // branch. It depends only on internal/provider; internal/cli wires Reconcile
