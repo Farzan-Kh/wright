@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 240">
+  <g fill="none" stroke="#C9982E" stroke-width="15" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M50 64 L85 176 L120 100 L155 176 L190 64" />
+  </g>
+  <g fill="#C9982E" stroke="#F2EEE4" stroke-width="4">
+    <circle cx="50" cy="64" r="13" />
+    <circle cx="85" cy="176" r="13" />
+    <circle cx="120" cy="100" r="13" />
+    <circle cx="155" cy="176" r="13" />
+    <circle cx="190" cy="64" r="13" />
+  </g>
+  <text x="270" y="158" font-family="'Helvetica Neue', Arial, sans-serif" font-weight="700" font-size="108" letter-spacing="-1" fill="#F2EEE4">Wright</text>
+</svg>

@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="logos/wright-logo-dark.svg" alt="Wright logo" width="320">
+</p>
+
 # Wright
 
 Wright is a self-hosted daemon that turns well-scoped GitHub and GitLab
