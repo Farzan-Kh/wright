@@ -18,6 +18,7 @@ import (
 	"github.com/farzan-kh/wright/internal/agent/llm/retrying"
 	"github.com/farzan-kh/wright/internal/cache"
 	"github.com/farzan-kh/wright/internal/config"
+	"github.com/farzan-kh/wright/internal/executor"
 	"github.com/farzan-kh/wright/internal/gate"
 	"github.com/farzan-kh/wright/internal/logging"
 	"github.com/farzan-kh/wright/internal/pipeline"
@@ -60,7 +61,7 @@ func newRunCmd() *cobra.Command {
 				stackStore = &stack.FileStore{Dir: filepath.Join(cfg.Cache.Dir, "stack")}
 			}
 
-			exec := &issueExecutor{
+			exec := &executor.Executor{
 				Provider:      p,
 				Repo:          repo,
 				RepoConfig:    rc,
