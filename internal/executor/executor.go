@@ -167,11 +167,12 @@ func (e *Executor) Handle(ctx context.Context, issue provider.Issue) (cost.Summa
 		Exec: task,
 		Cfg: agent.Config{
 			Model:          e.RepoConfig.LLM.AgentModel,
-			MaxTokens:      8192,
+			MaxTokens:      32000,
 			MaxTurns:       e.RepoConfig.Budget.MaxTurns,
 			MaxTotalTokens: e.RepoConfig.Budget.MaxTotalTokens,
 			MaxUSD:         e.RepoConfig.Budget.MaxUSD,
 			Rates:          e.RepoConfig.LLM.ToRateTable(),
+			ThinkingOn:     e.RepoConfig.LLM.ThinkingEnabled(),
 			ThinkEffort:    e.RepoConfig.LLM.Effort,
 		},
 	}

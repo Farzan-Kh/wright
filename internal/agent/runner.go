@@ -23,6 +23,7 @@ type Config struct {
 	MaxTotalTokens int64
 	MaxUSD         float64
 	Rates          cost.RateTable
+	ThinkingOn     bool
 	ThinkEffort    string
 }
 
@@ -92,7 +93,7 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 			System:      req.System,
 			Messages:    history,
 			Tools:       req.Tools,
-			ThinkingOn:  true,
+			ThinkingOn:  r.Cfg.ThinkingOn,
 			ThinkEffort: effort,
 		})
 		if err != nil {
