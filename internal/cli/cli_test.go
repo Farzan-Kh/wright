@@ -69,6 +69,33 @@ func TestValidateCommand(t *testing.T) {
 		}
 	})
 
+	t.Run("auto_routing_alias_warns_without_failure", func(t *testing.T) {
+		autoConfig := writeConfig(t, `version: 1
+repos:
+  - provider: github
+    repo: acme/widgets
+    llm:
+      provider: openrouter
+      agent_model: openrouter/auto
+      gate_model: anthropic/auto
+`)
+		t.Setenv("WRIGHT_GITHUB_TOKEN", "dummy")
+		t.Setenv("OPENROUTER_API_KEY", "dummy-llm")
+
+		out, err := run("validate", "--config", autoConfig)
+		if err != nil {
+			t.Fatalf("validate: %v (out: %s)", err, out)
+		}
+		for _, want := range []string{
+			`warning: llm.agent_model "openrouter/auto" uses an auto-routing alias`,
+			`warning: llm.gate_model "anthropic/auto" uses an auto-routing alias`,
+		} {
+			if !strings.Contains(out, want) {
+				t.Errorf("output missing %q: %s", want, out)
+			}
+		}
+	})
+
 	t.Run("missing_token", func(t *testing.T) {
 		t.Setenv("WRIGHT_GITHUB_TOKEN", "")
 		t.Setenv("GITHUB_TOKEN", "")
