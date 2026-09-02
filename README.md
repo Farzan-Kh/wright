@@ -75,8 +75,9 @@ with your credentials.
 - Per-issue token and turn accounting.
 - A YAML config format (`wright.yaml`) describing one or more repos.
 - A CLI:
-  - `wright validate` — load and validate config offline, and confirm required
-    token env vars are set.
+  - `wright validate` — load and validate config offline, confirm required
+    token env vars are set, and warn when an LLM model uses an `/auto`
+    auto-routing alias.
   - `wright once` — prove provider access and list labeled issues.
   - `wright run` — run one full Phase 1 pipeline pass for one repo.
   - `wright smoke` — manual provider write-path smoke test.
