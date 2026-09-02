@@ -48,6 +48,19 @@ func newValidateCmd() *cobra.Command {
 						missing = append(missing, fmt.Sprintf("%s llm api key: set one of %s", rc.Repo, strings.Join(rc.LLM.APIKeyEnvCandidates(), ", ")))
 					}
 				}
+
+				for _, model := range []struct {
+					name  string
+					value string
+				}{
+					{name: "agent_model", value: rc.LLM.AgentModel},
+					{name: "gate_model", value: rc.LLM.GateModel},
+				} {
+					if strings.HasSuffix(strings.ToLower(strings.TrimSpace(model.value)), "/auto") {
+						fmt.Fprintf(out, "warning: llm.%s %q uses an auto-routing alias; pin a concrete model for measured runs\n",
+							model.name, model.value)
+					}
+				}
 			}
 
 			if len(missing) > 0 {

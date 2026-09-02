@@ -222,6 +222,11 @@ file, since it's local daemon state rather than a per-repo behavior. See
 `wright validate` runs all of the following and reports every failure at
 once (not just the first):
 
+When `llm.agent_model` or `llm.gate_model` ends in `/auto` (case-insensitive,
+after trimming whitespace), validation succeeds but prints a warning that
+auto-routing can make measured runs less reproducible. Pin a concrete model
+when consistent model selection is required.
+
 - `version` must be `1`.
 - At least one entry in `repos`.
 - Each repo's `provider` + `repo` pair must be unique across the file.
